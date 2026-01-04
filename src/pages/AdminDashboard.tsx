@@ -31,13 +31,13 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
-      navigate('/admin');
+      navigate('/login');
     }
   }, [user, isAdmin, isLoading, navigate]);
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/admin');
+    navigate('/login');
   };
 
   if (isLoading) {

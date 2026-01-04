@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { HelmetProvider } from 'react-helmet-async';
 import { AuthProvider } from "@/hooks/useAuth";
 import Index from "./pages/Index";
-import AdminLogin from "./pages/AdminLogin";
+import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import DashboardOverview from "./pages/admin/DashboardOverview";
 import AppointmentsList from "./pages/admin/AppointmentsList";
@@ -16,7 +16,6 @@ import ClientsList from "./pages/admin/ClientsList";
 import SettingsPage from "./pages/admin/SettingsPage";
 import BarberAccountsPage from "./pages/admin/BarberAccountsPage";
 import BarberRegister from "./pages/BarberRegister";
-import BarberLogin from "./pages/BarberLogin";
 import BarberDashboard from "./pages/BarberDashboard";
 import NotFound from "./pages/NotFound";
 
@@ -32,7 +31,9 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
-              <Route path="/admin" element={<AdminLogin />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/admin" element={<Login />} />
+              <Route path="/barber/login" element={<Login />} />
               <Route path="/admin/dashboard" element={<AdminDashboard />}>
                 <Route index element={<DashboardOverview />} />
                 <Route path="appointments" element={<AppointmentsList />} />
@@ -43,7 +44,6 @@ const App = () => (
                 <Route path="accounts" element={<BarberAccountsPage />} />
               </Route>
               <Route path="/barber/register" element={<BarberRegister />} />
-              <Route path="/barber/login" element={<BarberLogin />} />
               <Route path="/barber/dashboard" element={<BarberDashboard />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

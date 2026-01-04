@@ -19,9 +19,9 @@ export function LandingPage({ onBookNow }: LandingPageProps) {
       {/* Header */}
       <header className="relative z-10 flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <Logo size="sm" />
-        <Link to="/admin">
+        <Link to="/login">
           <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
-            Admin
+            Entrar
           </Button>
         </Link>
       </header>

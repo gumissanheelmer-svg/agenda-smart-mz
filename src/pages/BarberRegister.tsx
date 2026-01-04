@@ -58,7 +58,7 @@ export default function BarberRegister() {
         email: formData.email.trim(),
         password: formData.password,
         options: {
-          emailRedirectTo: `${window.location.origin}/barber/login`,
+          emailRedirectTo: `${window.location.origin}/login`,
         },
       });
 
@@ -292,7 +292,7 @@ export default function BarberRegister() {
                   type="button"
                   variant="ghost"
                   className="w-full"
-                  onClick={() => navigate('/barber/login')}
+                  onClick={() => navigate('/login')}
                   disabled={isSubmitting}
                 >
                   Já tenho conta

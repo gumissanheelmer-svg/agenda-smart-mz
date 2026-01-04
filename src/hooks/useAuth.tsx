@@ -133,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string) => {
     try {
-      const redirectUrl = `${window.location.origin}/admin/dashboard`;
+      const redirectUrl = `${window.location.origin}/login`;
       
       const { error } = await supabase.auth.signUp({
         email,

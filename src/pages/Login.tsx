@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
@@ -7,29 +7,48 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Lock, Mail, Clock } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Clock, ShieldX } from 'lucide-react';
 import { Helmet } from 'react-helmet-async';
 
-export default function BarberLogin() {
+type LoginState = 'form' | 'pending' | 'unauthorized';
+
+export default function Login() {
   const navigate = useNavigate();
-  const { signIn, user, isBarber, isApprovedBarber, isLoading } = useAuth();
+  const { signIn, user, isAdmin, isBarber, isApprovedBarber, isLoading } = useAuth();
   const { toast } = useToast();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isPending, setIsPending] = useState(false);
+  const [loginState, setLoginState] = useState<LoginState>('form');
+  const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user) {
+      // Admin takes priority
+      if (isAdmin) {
+        navigate('/admin/dashboard');
+        return;
+      }
+      
+      // Check barber status
       if (isApprovedBarber) {
         navigate('/barber/dashboard');
-      } else if (isBarber) {
-        setIsPending(true);
+        return;
+      }
+      
+      if (isBarber) {
+        setLoginState('pending');
+        return;
+      }
+      
+      // User exists but is neither admin nor barber
+      if (hasCheckedAuth) {
+        setLoginState('unauthorized');
       }
     }
-  }, [user, isBarber, isApprovedBarber, isLoading, navigate]);
+  }, [user, isAdmin, isBarber, isApprovedBarber, isLoading, navigate, hasCheckedAuth]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +63,7 @@ export default function BarberLogin() {
     }
 
     setIsSubmitting(true);
+    setHasCheckedAuth(false);
 
     try {
       const { error } = await signIn(email.trim(), password);
@@ -57,7 +77,13 @@ export default function BarberLogin() {
         return;
       }
 
-      // Auth state change will handle navigation
+      // Mark that we've completed auth check after successful login
+      setHasCheckedAuth(true);
+      
+      toast({
+        title: 'Bem-vindo!',
+        description: 'Login realizado com sucesso.',
+      });
     } catch (err) {
       toast({
         title: 'Erro',
@@ -79,7 +105,8 @@ export default function BarberLogin() {
     );
   }
 
-  if (isPending) {
+  // Pending barber state
+  if (loginState === 'pending') {
     return (
       <>
         <Helmet>
@@ -119,10 +146,51 @@ export default function BarberLogin() {
     );
   }
 
+  // Unauthorized state
+  if (loginState === 'unauthorized') {
+    return (
+      <>
+        <Helmet>
+          <title>Acesso Não Autorizado - Barbearia Elite</title>
+          <meta name="robots" content="noindex, nofollow" />
+        </Helmet>
+
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+          <div className="fixed inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-primary/5 rounded-full blur-3xl" />
+            <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-3xl" />
+          </div>
+
+          <div className="relative z-10 w-full max-w-md">
+            <Card className="border-border/50 bg-card/80 backdrop-blur text-center">
+              <CardContent className="pt-8 pb-8">
+                <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-6">
+                  <ShieldX className="w-10 h-10 text-destructive" />
+                </div>
+                
+                <h2 className="text-2xl font-display text-foreground mb-4">
+                  Acesso Não Autorizado
+                </h2>
+                
+                <p className="text-muted-foreground mb-6">
+                  Esta conta não tem permissão para acessar o sistema.
+                </p>
+
+                <Button variant="gold" onClick={() => navigate('/')}>
+                  Voltar ao Site
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Helmet>
-        <title>Login Barbeiro - Barbearia Elite</title>
+        <title>Entrar - Barbearia Elite</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
@@ -141,10 +209,10 @@ export default function BarberLogin() {
           <Card className="border-border/50 bg-card/80 backdrop-blur">
             <CardHeader className="text-center">
               <CardTitle className="text-2xl font-display">
-                Área do Barbeiro
+                Área Restrita
               </CardTitle>
               <CardDescription>
-                Entre com suas credenciais para acessar
+                Entre com suas credenciais para acessar o sistema
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -196,22 +264,20 @@ export default function BarberLogin() {
                 >
                   {isSubmitting ? 'Entrando...' : 'Entrar'}
                 </Button>
-
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full"
-                  onClick={() => navigate('/barber/register')}
-                  disabled={isSubmitting}
-                >
-                  Criar conta
-                </Button>
               </form>
 
-              <div className="mt-6 text-center">
-                <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-                  ← Voltar ao site
-                </Button>
+              <div className="mt-6 pt-4 border-t border-border/50 text-center space-y-3">
+                <Link 
+                  to="/barber/register" 
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                >
+                  É barbeiro? Crie sua conta aqui
+                </Link>
+                <div>
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+                    ← Voltar ao site
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

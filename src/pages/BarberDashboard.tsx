@@ -39,7 +39,7 @@ export default function BarberDashboard() {
 
   useEffect(() => {
     if (!isLoading && (!user || !isApprovedBarber)) {
-      navigate('/barber/login');
+      navigate('/login');
     }
   }, [user, isApprovedBarber, isLoading, navigate]);
 
@@ -78,7 +78,7 @@ export default function BarberDashboard() {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/barber/login');
+    navigate('/login');
   };
 
   const openWhatsApp = (phone: string, clientName: string) => {
