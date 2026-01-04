@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Logo } from '@/components/Logo';
@@ -10,10 +10,13 @@ import {
   Settings, 
   LogOut,
   LayoutDashboard,
-  UserCheck
+  UserCheck,
+  Menu
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Helmet } from 'react-helmet-async';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 const navItems = [
   { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -25,9 +28,57 @@ const navItems = [
   { to: '/admin/dashboard/settings', icon: Settings, label: 'Configurações' },
 ];
 
+interface NavContentProps {
+  onItemClick?: () => void;
+  onSignOut: () => void;
+}
+
+const NavContent = ({ onItemClick, onSignOut }: NavContentProps) => (
+  <>
+    <div className="p-6 border-b border-border">
+      <Logo size="sm" />
+    </div>
+
+    <nav className="flex-1 p-4 space-y-1">
+      {navItems.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.to === '/admin/dashboard'}
+          onClick={onItemClick}
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200',
+              isActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+            )
+          }
+        >
+          <item.icon className="w-5 h-5" />
+          {item.label}
+        </NavLink>
+      ))}
+    </nav>
+
+    <div className="p-4 border-t border-border">
+      <Button
+        variant="ghost"
+        className="w-full justify-start text-muted-foreground hover:text-destructive"
+        onClick={onSignOut}
+      >
+        <LogOut className="w-5 h-5 mr-3" />
+        Sair
+      </Button>
+    </div>
+  </>
+);
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user, isAdmin, isLoading, signOut } = useAuth();
+  const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -39,6 +90,8 @@ export default function AdminDashboard() {
     await signOut();
     navigate('/login');
   };
+
+  const closeMenu = () => setMenuOpen(false);
 
   if (isLoading) {
     return (
@@ -62,47 +115,38 @@ export default function AdminDashboard() {
       </Helmet>
 
       <div className="min-h-screen bg-background flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-card border-r border-border flex flex-col fixed h-full">
-          <div className="p-6 border-b border-border">
-            <Logo size="sm" />
-          </div>
+        {/* Mobile Header */}
+        {isMobile && (
+          <header className="fixed top-0 left-0 right-0 z-50 bg-card border-b border-border">
+            <div className="flex items-center justify-between p-4">
+              <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Menu className="h-6 w-6" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-64 p-0 flex flex-col">
+                  <NavContent onItemClick={closeMenu} onSignOut={handleSignOut} />
+                </SheetContent>
+              </Sheet>
+              <Logo size="sm" />
+              <div className="w-10" /> {/* Spacer for centering */}
+            </div>
+          </header>
+        )}
 
-          <nav className="flex-1 p-4 space-y-1">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/admin/dashboard'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200',
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                  )
-                }
-              >
-                <item.icon className="w-5 h-5" />
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className="p-4 border-t border-border">
-            <Button
-              variant="ghost"
-              className="w-full justify-start text-muted-foreground hover:text-destructive"
-              onClick={handleSignOut}
-            >
-              <LogOut className="w-5 h-5 mr-3" />
-              Sair
-            </Button>
-          </div>
-        </aside>
+        {/* Desktop Sidebar */}
+        {!isMobile && (
+          <aside className="w-64 bg-card border-r border-border flex flex-col fixed h-full">
+            <NavContent onSignOut={handleSignOut} />
+          </aside>
+        )}
 
         {/* Main Content */}
-        <main className="flex-1 ml-64 p-8">
+        <main className={cn(
+          "flex-1 p-4 md:p-8",
+          isMobile ? "pt-20" : "ml-64"
+        )}>
           <Outlet />
         </main>
       </div>
