@@ -153,7 +153,10 @@ export default function BarbershopRegister() {
         return;
       }
 
-      // 2. Create user account
+      let userId: string;
+      let isExistingUser = false;
+
+      // 2. Try to create user account
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: formData.ownerEmail,
         password: formData.ownerPassword,
@@ -166,26 +169,75 @@ export default function BarbershopRegister() {
         },
       });
 
+      // Handle user already registered - try to sign in instead
       if (authError) {
-        throw new Error(authError.message);
+        if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+          // User exists, try to sign in
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: formData.ownerEmail,
+            password: formData.ownerPassword,
+          });
+
+          if (signInError) {
+            throw new Error('Email já cadastrado. Verifique sua senha ou faça login.');
+          }
+
+          if (!signInData.user) {
+            throw new Error('Falha ao autenticar');
+          }
+
+          userId = signInData.user.id;
+          isExistingUser = true;
+
+          // Check if user already has a barbershop
+          const { data: existingRole } = await supabase
+            .from('user_roles')
+            .select('barbershop_id')
+            .eq('user_id', userId)
+            .eq('role', 'admin')
+            .maybeSingle();
+
+          if (existingRole?.barbershop_id) {
+            // Check if barbershop still exists
+            const { data: existingBarbershop } = await supabase
+              .from('barbershops')
+              .select('id, name')
+              .eq('id', existingRole.barbershop_id)
+              .maybeSingle();
+
+            if (existingBarbershop) {
+              toast({
+                title: "Barbearia existente",
+                description: `Você já possui a barbearia "${existingBarbershop.name}". Redirecionando...`,
+              });
+              await refreshRoles();
+              await new Promise(resolve => setTimeout(resolve, 500));
+              navigate('/pending-approval');
+              return;
+            }
+          }
+        } else {
+          throw new Error(authError.message);
+        }
+      } else {
+        if (!authData.user) {
+          throw new Error('Falha ao criar conta');
+        }
+        userId = authData.user.id;
       }
 
-      if (!authData.user) {
-        throw new Error('Falha ao criar conta');
-      }
-
-      const userId = authData.user.id;
-
-      // Wait for session to be established
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        // Try to sign in if session not immediately available (auto-confirm enabled)
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: formData.ownerEmail,
-          password: formData.ownerPassword,
-        });
-        if (signInError) {
-          console.warn('Auto sign-in failed, user may need to confirm email:', signInError.message);
+      // Wait for session to be established (for new users)
+      if (!isExistingUser) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          // Try to sign in if session not immediately available (auto-confirm enabled)
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: formData.ownerEmail,
+            password: formData.ownerPassword,
+          });
+          if (signInError) {
+            console.warn('Auto sign-in failed, user may need to confirm email:', signInError.message);
+          }
         }
       }
 
@@ -249,6 +301,20 @@ export default function BarbershopRegister() {
           .update({ barbershop_id: barbershopData.id })
           .eq('user_id', userId)
           .eq('role', 'admin');
+      }
+
+      // 6. Create profile if it doesn't exist
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!existingProfile) {
+        await supabase.from('profiles').insert({
+          id: userId,
+          email: formData.ownerEmail,
+        });
       }
 
       toast({
