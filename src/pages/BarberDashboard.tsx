@@ -16,13 +16,16 @@ import {
 import { cn } from '@/lib/utils';
 import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/integrations/supabase/client';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
-interface TodayAppointment {
+type DateFilter = 'today' | 'week' | 'all';
+
+interface Appointment {
   id: string;
   client_name: string;
   client_phone: string;
+  appointment_date: string;
   appointment_time: string;
   status: string;
   service: {
@@ -34,8 +37,9 @@ interface TodayAppointment {
 export default function BarberDashboard() {
   const navigate = useNavigate();
   const { user, isApprovedBarber, barberAccount, isLoading, signOut } = useAuth();
-  const [appointments, setAppointments] = useState<TodayAppointment[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [dateFilter, setDateFilter] = useState<DateFilter>('today');
 
   useEffect(() => {
     if (!isLoading && (!user || !isApprovedBarber)) {
@@ -45,35 +49,54 @@ export default function BarberDashboard() {
 
   useEffect(() => {
     if (barberAccount?.barber_id) {
-      fetchTodayAppointments();
+      fetchAppointments();
     }
-  }, [barberAccount]);
+  }, [barberAccount, dateFilter]);
 
-  const fetchTodayAppointments = async () => {
+  const fetchAppointments = async () => {
     if (!barberAccount?.barber_id) return;
+    setIsLoadingData(true);
 
     const today = format(new Date(), 'yyyy-MM-dd');
+    const weekEnd = format(addDays(new Date(), 7), 'yyyy-MM-dd');
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('appointments')
       .select(`
         id,
         client_name,
         client_phone,
+        appointment_date,
         appointment_time,
         status,
         service:services(name, duration)
       `)
       .eq('barber_id', barberAccount.barber_id)
-      .eq('appointment_date', today)
+      .order('appointment_date', { ascending: true })
       .order('appointment_time', { ascending: true });
+
+    if (dateFilter === 'today') {
+      query = query.eq('appointment_date', today);
+    } else if (dateFilter === 'week') {
+      query = query.gte('appointment_date', today).lte('appointment_date', weekEnd);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Error fetching appointments:', error);
     } else {
-      setAppointments(data as TodayAppointment[]);
+      setAppointments(data as Appointment[]);
     }
     setIsLoadingData(false);
+  };
+
+  const getFilterLabel = () => {
+    switch (dateFilter) {
+      case 'today': return 'hoje';
+      case 'week': return 'esta semana';
+      case 'all': return 'no total';
+    }
   };
 
   const handleSignOut = async () => {
@@ -153,12 +176,39 @@ export default function BarberDashboard() {
         {/* Main Content */}
         <main className="container mx-auto px-4 py-8">
           <div className="mb-8">
-            <h2 className="text-2xl font-display text-foreground mb-2">
-              Agendamentos de Hoje
-            </h2>
-            <p className="text-muted-foreground">
-              {appointments.length} {appointments.length === 1 ? 'agendamento' : 'agendamentos'} para hoje
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-2xl font-display text-foreground mb-1">
+                  Agendamentos
+                </h2>
+                <p className="text-muted-foreground">
+                  {appointments.length} {appointments.length === 1 ? 'agendamento' : 'agendamentos'} {getFilterLabel()}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={dateFilter === 'today' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDateFilter('today')}
+                >
+                  Hoje
+                </Button>
+                <Button
+                  variant={dateFilter === 'week' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDateFilter('week')}
+                >
+                  Semana
+                </Button>
+                <Button
+                  variant={dateFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setDateFilter('all')}
+                >
+                  Todos
+                </Button>
+              </div>
+            </div>
           </div>
 
           {isLoadingData ? (
@@ -198,6 +248,9 @@ export default function BarberDashboard() {
                           <CardTitle className="text-base">{appointment.client_name}</CardTitle>
                           <CardDescription className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
+                            {dateFilter !== 'today' && (
+                              <span>{format(new Date(appointment.appointment_date), 'dd/MM')} - </span>
+                            )}
                             {appointment.appointment_time.slice(0, 5)}
                           </CardDescription>
                         </div>
