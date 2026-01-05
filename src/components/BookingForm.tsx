@@ -98,15 +98,22 @@ export function BookingForm({ onBack, barbershopId }: BookingFormProps) {
     if (!currentBarbershopId) return;
 
     const [servicesRes, barbersRes] = await Promise.all([
-      supabase.from('services').select('*').eq('active', true).eq('barbershop_id', currentBarbershopId),
-      supabase.from('barbers').select('*').eq('active', true).eq('barbershop_id', currentBarbershopId),
+      supabase.from('services').select('id, name, price, duration').eq('active', true).eq('barbershop_id', currentBarbershopId),
+      // Only select non-sensitive fields - no phone for public view
+      supabase.from('barbers').select('id, name, working_hours').eq('active', true).eq('barbershop_id', currentBarbershopId),
     ]);
 
     if (servicesRes.data) setServices(servicesRes.data as Service[]);
     if (barbersRes.data) {
-      const mappedBarbers = barbersRes.data.map(b => ({
-        ...b,
-        working_hours: b.working_hours as unknown as WorkingHours
+      // Map to Barber type, excluding sensitive data (phone not included in query)
+      const mappedBarbers: Barber[] = barbersRes.data.map(b => ({
+        id: b.id,
+        name: b.name,
+        phone: null, // Not fetched for public view - hidden for security
+        active: true, // We only query active barbers
+        working_hours: b.working_hours as unknown as WorkingHours,
+        created_at: '',
+        updated_at: '',
       }));
       setBarbers(mappedBarbers);
     }
