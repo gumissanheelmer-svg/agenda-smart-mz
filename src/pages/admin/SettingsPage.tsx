@@ -121,7 +121,17 @@ export default function SettingsPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-display font-bold text-foreground">Configurações</h1>
-        <p className="text-muted-foreground">Configurações não encontradas. Crie uma barbearia primeiro.</p>
+        <Card className="border-border/50 bg-card/80">
+          <CardContent className="p-8 text-center">
+            <p className="text-muted-foreground">Bem-vindo! Configure sua barbearia para começar.</p>
+            <Button 
+              className="mt-4" 
+              onClick={() => window.location.href = '/register'}
+            >
+              Criar Barbearia
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

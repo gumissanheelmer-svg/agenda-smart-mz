@@ -228,17 +228,23 @@ export default function BarbershopRegister() {
         throw new Error('Falha ao criar barbearia: ' + shopError.message);
       }
 
-      // 5. Assign admin role to user
+      // 5. Assign admin role to user (upsert to handle existing role without barbershop_id)
       const { error: roleError } = await supabase
         .from('user_roles')
-        .insert({
+        .upsert({
           user_id: userId,
           role: 'admin',
           barbershop_id: barbershopData.id,
-        });
+        }, { onConflict: 'user_id,role' });
 
       if (roleError) {
         console.error('Role assignment error:', roleError);
+        // Try update if upsert fails
+        await supabase
+          .from('user_roles')
+          .update({ barbershop_id: barbershopData.id })
+          .eq('user_id', userId)
+          .eq('role', 'admin');
       }
 
       toast({
