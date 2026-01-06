@@ -33,10 +33,10 @@ export const Logo = forwardRef<HTMLDivElement, LogoProps>(function Logo(
       {showText && (
         <div className="flex flex-col">
           <span className={`${textClasses[size]} font-display font-bold text-foreground`}>
-            Barbearia
+            Agenda
           </span>
           <span className="text-primary text-sm font-medium tracking-widest uppercase">
-            Elite
+            Smart
           </span>
         </div>
       )}
