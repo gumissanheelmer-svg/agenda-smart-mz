@@ -223,23 +223,31 @@ export function BookingForm({ onBack, barbershopId }: BookingFormProps) {
 
     setIsLoading(true);
 
+    const appointmentData = {
+      client_name: formData.clientName.trim(),
+      client_phone: formData.clientPhone.trim(),
+      service_id: formData.serviceId,
+      barber_id: formData.barberId,
+      appointment_date: format(formData.appointmentDate, 'yyyy-MM-dd'),
+      appointment_time: formData.appointmentTime,
+      status: 'pending',
+      barbershop_id: currentBarbershopId,
+    };
+    
+    console.log('=== BOOKING DEBUG ===');
+    console.log('Appointment data:', JSON.stringify(appointmentData, null, 2));
+
     try {
       const { data, error } = await supabase
         .from('appointments')
-        .insert({
-          client_name: formData.clientName.trim(),
-          client_phone: formData.clientPhone.trim(),
-          service_id: formData.serviceId,
-          barber_id: formData.barberId,
-          appointment_date: format(formData.appointmentDate, 'yyyy-MM-dd'),
-          appointment_time: formData.appointmentTime,
-          status: 'pending',
-          barbershop_id: currentBarbershopId,
-        })
+        .insert(appointmentData)
         .select('*')
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error details:', JSON.stringify(error, null, 2));
+        throw error;
+      }
 
       const mappedAppointment = {
         ...data,
