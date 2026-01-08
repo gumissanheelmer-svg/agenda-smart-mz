@@ -20,6 +20,7 @@ import ServicesList from "./pages/admin/ServicesList";
 import ClientsList from "./pages/admin/ClientsList";
 import ExpensesList from "./pages/admin/ExpensesList";
 import SettingsPage from "./pages/admin/SettingsPage";
+import ManagersPage from "./pages/admin/ManagersPage";
 import BarberAccountsPage from "./pages/admin/BarberAccountsPage";
 import ProfessionalSchedulesPage from "./pages/admin/ProfessionalSchedulesPage";
 import AttendanceManagementPage from "./pages/admin/AttendanceManagementPage";
@@ -66,6 +67,7 @@ const App = () => (
                     <Route path="services" element={<ServicesList />} />
                     <Route path="clients" element={<ClientsList />} />
                     <Route path="expenses" element={<ExpensesList />} />
+                    <Route path="managers" element={<ManagersPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="accounts" element={<BarberAccountsPage />} />
                   </Route>

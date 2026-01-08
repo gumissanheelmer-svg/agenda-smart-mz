@@ -15,7 +15,8 @@ import {
   Menu,
   Wallet,
   Sparkles,
-  Clock
+  Clock,
+  Shield
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Helmet } from 'react-helmet-async';
@@ -28,18 +29,27 @@ interface NavItem {
   label: string;
 }
 
-const getNavItems = (professionalsLabel: string, isBarbershop: boolean): NavItem[] => [
-  { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/admin/dashboard/appointments', icon: Calendar, label: 'Agendamentos' },
-  { to: '/admin/dashboard/barbers', icon: isBarbershop ? UserCheck : Sparkles, label: professionalsLabel },
-  { to: '/admin/dashboard/schedules', icon: Clock, label: 'Horários' },
-  { to: '/admin/dashboard/attendance', icon: UserCheck, label: 'Presença' },
-  { to: '/admin/dashboard/accounts', icon: Users, label: 'Contas' },
-  { to: '/admin/dashboard/services', icon: Scissors, label: 'Serviços' },
-  { to: '/admin/dashboard/clients', icon: Users, label: 'Clientes' },
-  { to: '/admin/dashboard/expenses', icon: Wallet, label: 'Despesas' },
-  { to: '/admin/dashboard/settings', icon: Settings, label: 'Configurações' },
-];
+const getNavItems = (professionalsLabel: string, isBarbershop: boolean, isAdmin: boolean): NavItem[] => {
+  const items: NavItem[] = [
+    { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/admin/dashboard/appointments', icon: Calendar, label: 'Agendamentos' },
+    { to: '/admin/dashboard/barbers', icon: isBarbershop ? UserCheck : Sparkles, label: professionalsLabel },
+    { to: '/admin/dashboard/schedules', icon: Clock, label: 'Horários' },
+    { to: '/admin/dashboard/attendance', icon: UserCheck, label: 'Presença' },
+    { to: '/admin/dashboard/accounts', icon: Users, label: 'Contas' },
+    { to: '/admin/dashboard/services', icon: Scissors, label: 'Serviços' },
+    { to: '/admin/dashboard/clients', icon: Users, label: 'Clientes' },
+    { to: '/admin/dashboard/expenses', icon: Wallet, label: 'Despesas' },
+  ];
+  
+  // Only admins can see managers and settings
+  if (isAdmin) {
+    items.push({ to: '/admin/dashboard/managers', icon: Shield, label: 'Gerentes' });
+    items.push({ to: '/admin/dashboard/settings', icon: Settings, label: 'Configurações' });
+  }
+  
+  return items;
+};
 
 interface NavContentProps {
   navItems: NavItem[];
@@ -90,7 +100,7 @@ const NavContent = ({ navItems, onItemClick, onSignOut }: NavContentProps) => (
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { user, isAdmin, isLoading, signOut } = useAuth();
+  const { user, isAdmin, isManager, isLoading, signOut } = useAuth();
   const { barbershop } = useAdminBarbershop();
   const isMobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -99,7 +109,7 @@ export default function AdminDashboard() {
   const businessType = barbershop?.business_type || 'barbearia';
   const isBarbershop = businessType === 'barbearia';
   const professionalsLabel = isBarbershop ? 'Barbeiros' : 'Profissionais';
-  const navItems = getNavItems(professionalsLabel, isBarbershop);
+  const navItems = getNavItems(professionalsLabel, isBarbershop, isAdmin);
 
   useEffect(() => {
     if (!isLoading) {
@@ -112,10 +122,10 @@ export default function AdminDashboard() {
   }, [isLoading]);
 
   useEffect(() => {
-    if (hasCheckedAuth && (!user || !isAdmin)) {
+    if (hasCheckedAuth && (!user || (!isAdmin && !isManager))) {
       navigate('/login');
     }
-  }, [hasCheckedAuth, user, isAdmin, navigate]);
+  }, [hasCheckedAuth, user, isAdmin, isManager, navigate]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -134,7 +144,7 @@ export default function AdminDashboard() {
     );
   }
 
-  if (!user || !isAdmin) {
+  if (!user || (!isAdmin && !isManager)) {
     return null;
   }
 

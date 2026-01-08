@@ -14,7 +14,7 @@ type LoginState = 'form' | 'pending' | 'unauthorized';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { signIn, user, isSuperAdmin, isAdmin, isBarber, isApprovedBarber, barbershopInfo, isLoading } = useAuth();
+  const { signIn, user, isSuperAdmin, isAdmin, isManager, isBarber, isApprovedBarber, barbershopInfo, isLoading } = useAuth();
   const { toast } = useToast();
   
   const [email, setEmail] = useState('');
@@ -48,8 +48,21 @@ export default function Login() {
         }
       }
       
-      // Admin without barbershop info yet (still loading)
-      if (isAdmin && !barbershopInfo) {
+      // Manager with approved barbershop
+      if (isManager && barbershopInfo) {
+        if (barbershopInfo.approval_status === 'approved') {
+          navigate('/admin/dashboard');
+          return;
+        }
+        // Pending, blocked, or rejected barbershop
+        if (['pending', 'blocked', 'rejected'].includes(barbershopInfo.approval_status)) {
+          navigate('/pending-approval');
+          return;
+        }
+      }
+      
+      // Admin or Manager without barbershop info yet (still loading)
+      if ((isAdmin || isManager) && !barbershopInfo) {
         // Wait a bit more for barbershop info
         return;
       }
@@ -69,7 +82,7 @@ export default function Login() {
       // User exists but is neither admin nor barber
       setLoginState('unauthorized');
     }
-  }, [user, isSuperAdmin, isAdmin, isBarber, isApprovedBarber, barbershopInfo, isLoading, isCheckingRoles, navigate]);
+  }, [user, isSuperAdmin, isAdmin, isManager, isBarber, isApprovedBarber, barbershopInfo, isLoading, isCheckingRoles, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

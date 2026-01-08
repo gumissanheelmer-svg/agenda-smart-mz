@@ -21,6 +21,7 @@ interface AuthContextType {
   session: Session | null;
   isSuperAdmin: boolean;
   isAdmin: boolean;
+  isManager: boolean;
   isBarber: boolean;
   isApprovedBarber: boolean;
   barberAccount: BarberAccountInfo | null;
@@ -40,13 +41,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isManager, setIsManager] = useState(false);
   const [isBarber, setIsBarber] = useState(false);
   const [isApprovedBarber, setIsApprovedBarber] = useState(false);
   const [barberAccount, setBarberAccount] = useState<BarberAccountInfo | null>(null);
   const [barbershopId, setBarbershopId] = useState<string | null>(null);
   const [barbershopInfo, setBarbershopInfo] = useState<BarbershopInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetRoles = () => {
     setIsSuperAdmin(false);
     setIsAdmin(false);
+    setIsManager(false);
     setIsBarber(false);
     setIsApprovedBarber(false);
     setBarberAccount(null);
@@ -105,15 +107,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Check for admin role and get barbershop_id
       const adminRole = rolesData?.find(r => r.role === 'admin');
       setIsAdmin(!!adminRole);
+
+      // Check for manager role and get barbershop_id
+      const managerRole = rolesData?.find(r => r.role === 'manager');
+      setIsManager(!!managerRole);
       
-      if (adminRole?.barbershop_id) {
-        setBarbershopId(adminRole.barbershop_id);
+      // Use admin or manager barbershop_id
+      const roleWithShop = adminRole || managerRole;
+      
+      if (roleWithShop?.barbershop_id) {
+        setBarbershopId(roleWithShop.barbershop_id);
         
         // Fetch barbershop info to check approval status
         const { data: shopData, error: shopError } = await supabase
           .from('barbershops')
           .select('id, name, approval_status')
-          .eq('id', adminRole.barbershop_id)
+          .eq('id', roleWithShop.barbershop_id)
           .maybeSingle();
 
         if (!shopError && shopData) {
@@ -209,7 +218,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user, 
       session,
       isSuperAdmin,
-      isAdmin, 
+      isAdmin,
+      isManager,
       isBarber, 
       isApprovedBarber, 
       barberAccount,

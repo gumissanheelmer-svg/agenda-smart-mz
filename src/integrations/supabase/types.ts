@@ -317,6 +317,45 @@ export type Database = {
         }
         Relationships: []
       }
+      managers: {
+        Row: {
+          active: boolean
+          barbershop_id: string
+          created_at: string
+          created_by: string
+          email: string
+          id: string
+          name: string
+          phone: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          active?: boolean
+          barbershop_id: string
+          created_at?: string
+          created_by: string
+          email: string
+          id?: string
+          name: string
+          phone?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          active?: boolean
+          barbershop_id?: string
+          created_at?: string
+          created_by?: string
+          email?: string
+          id?: string
+          name?: string
+          phone?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       professional_attendance: {
         Row: {
           attendance_date: string
@@ -762,6 +801,14 @@ export type Database = {
       }
       is_approved_barber: { Args: { _user_id: string }; Returns: boolean }
       is_barbershop_admin: {
+        Args: { _barbershop_id: string; _user_id: string }
+        Returns: boolean
+      }
+      is_barbershop_admin_or_manager: {
+        Args: { _barbershop_id: string; _user_id: string }
+        Returns: boolean
+      }
+      is_barbershop_manager: {
         Args: { _barbershop_id: string; _user_id: string }
         Returns: boolean
       }
