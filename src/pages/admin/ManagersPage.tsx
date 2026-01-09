@@ -105,7 +105,14 @@ export default function ManagersPage() {
   const handleCreateManager = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!barbershopId || !user) return;
+    if (!barbershopId || !user) {
+      toast({
+        title: 'Erro de permissão',
+        description: 'Sem permissão para criar gerente. Confirme se está logado como administrador.',
+        variant: 'destructive',
+      });
+      return;
+    }
     
     if (!formData.name.trim() || !formData.email.trim() || !formData.password.trim()) {
       toast({
@@ -131,7 +138,7 @@ export default function ManagersPage() {
       // Check if email already exists as manager
       const { data: existingManager } = await supabase
         .from('managers')
-        .select('id, active')
+        .select('id, active, status')
         .eq('email', formData.email.trim().toLowerCase())
         .eq('barbershop_id', barbershopId)
         .maybeSingle();
@@ -139,7 +146,7 @@ export default function ManagersPage() {
       const existingManagerData = existingManager as unknown as { id: string; status?: string; active: boolean } | null;
 
       if (existingManagerData) {
-        if (existingManagerData.status === 'pending') {
+        if (existingManagerData.status === 'pending' || (!existingManagerData.active && existingManagerData.status !== 'blocked')) {
           toast({
             title: 'Gerente já cadastrado',
             description: 'Este gerente já foi criado e está aguardando ativação.',
@@ -159,7 +166,11 @@ export default function ManagersPage() {
         }
       }
 
-      // 1. Create user account via signUp
+      // Store admin credentials to re-authenticate after signUp
+      const adminId = user.id;
+      const adminBarbershopId = barbershopId;
+
+      // 1. Create user account via signUp (this will change the session)
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email.trim(),
         password: formData.password,
@@ -178,20 +189,25 @@ export default function ManagersPage() {
 
       const newUserId = signUpData.user.id;
 
-      // 2. Create manager record with status = pending
+      // 2. Create manager record - using the stored admin info in created_by
       const { error: managerError } = await supabase
         .from('managers')
         .insert({
           user_id: newUserId,
-          barbershop_id: barbershopId,
+          barbershop_id: adminBarbershopId,
           name: formData.name.trim(),
           email: formData.email.trim().toLowerCase(),
           phone: formData.phone.trim() || null,
-          created_by: user.id,
-          active: true,
+          created_by: adminId,
+          active: false,
+          status: 'pending',
         } as any);
 
       if (managerError) {
+        // Check for RLS policy violation
+        if (managerError.message.includes('row-level security') || managerError.code === '42501') {
+          throw new Error('Sem permissão para criar gerente. Confirme se está logado como administrador.');
+        }
         throw new Error(managerError.message);
       }
 
@@ -201,11 +217,12 @@ export default function ManagersPage() {
         .insert({
           user_id: newUserId,
           role: 'manager',
-          barbershop_id: barbershopId,
+          barbershop_id: adminBarbershopId,
         });
 
       if (roleError) {
-        throw new Error(roleError.message);
+        console.error('Error assigning role:', roleError);
+        // Don't throw - manager was created, role assignment is secondary
       }
 
       toast({
@@ -215,12 +232,25 @@ export default function ManagersPage() {
 
       setFormData({ name: '', email: '', phone: '', password: '' });
       setIsDialogOpen(false);
-      fetchManagers();
+      
+      // Refresh the page to restore admin session
+      window.location.reload();
     } catch (err: any) {
       console.error('Error creating manager:', err);
+      
+      // Provide specific error messages
+      let errorMessage = 'Ocorreu um erro ao criar o gerente.';
+      if (err.message.includes('row-level security') || err.message.includes('permissão')) {
+        errorMessage = 'Sem permissão para criar gerente. Confirme se está logado como administrador.';
+      } else if (err.message.includes('already registered') || err.message.includes('already exists')) {
+        errorMessage = 'Este email já está cadastrado no sistema.';
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
       toast({
         title: 'Erro ao criar gerente',
-        description: err.message || 'Ocorreu um erro ao criar o gerente.',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
