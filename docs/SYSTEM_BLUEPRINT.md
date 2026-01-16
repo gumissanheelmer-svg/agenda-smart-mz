@@ -403,23 +403,38 @@ get_user_barbershop_id(uuid) → uuid
 can_view_client_data(uuid) → boolean
 ```
 
-### RPCs Públicas Seguras
+### RPCs Públicas Seguras (SECURITY DEFINER)
 
 ```sql
--- Dados para booking (sem PII)
-get_public_barbershop(slug) → {id, name, cores, logo, whatsapp...}
+-- RPCs READ-ONLY (sem dados sensíveis)
+get_public_barbershop(slug) → {id, name, cores, logo} -- SEM whatsapp, SEM owner_email
 get_public_services(barbershop_id) → [{id, name, price, duration}]
-get_public_professionals(barbershop_id) → [{id, name, working_hours}]
+get_public_professionals(barbershop_id) → [{id, name, specialty, working_hours}] -- SEM telefone
+get_public_service_professionals(barbershop_id) → vínculos serviço-profissional
+get_public_professional_schedules(barbershop_id) → horários de trabalho
+get_public_professional_time_off(barbershop_id) → folgas
+get_public_appointments_for_day(barber_id, date) → [{time, duration}] -- SEM dados do cliente
 get_valid_services(barbershop_id) → serviços válidos para o tipo de negócio
 get_available_professionals(barbershop_id, date) → com status de disponibilidade
-get_service_professional_mappings(barbershop_id) → vínculos serviço-profissional
+
+-- RPC WRITE (INSERT seguro)
+create_public_appointment(params) → {success, appointment_id, error}
+  - Valida barbershop ativo/aprovado
+  - Valida profissional ativo
+  - Valida serviço ativo
+  - Verifica conflitos de horário
+  - Insere com SECURITY DEFINER
+
+-- RPC para WhatsApp após agendamento
+get_barbershop_whatsapp_for_appointment(appointment_id) → whatsapp_number
+  - Retorna WhatsApp APENAS se appointment_id for válido
 ```
 
 ### Matriz de Políticas RLS
 
 | Tabela | SELECT | INSERT | UPDATE | DELETE |
 |--------|--------|--------|--------|--------|
-| `appointments` | Staff autenticado | Público (validado) | Staff/Barber | Admin/Manager |
+| `appointments` | Staff autenticado | **Via RPC apenas** | Staff/Barber | Admin/Manager |
 | `barbershops` | Admin/Manager do negócio | Authenticated (pending) | Admin | Admin |
 | `barbers` | Staff do negócio | Admin/Manager | Admin/Manager | Admin/Manager |
 | `services` | Público (active=true) | Admin/Manager | Admin/Manager | Admin/Manager |
@@ -427,6 +442,8 @@ get_service_professional_mappings(barbershop_id) → vínculos serviço-profissi
 | `managers` | Admin + próprio usuário | Admin | Admin | Admin |
 | `subscriptions` | Admin (próprio) | Super Admin | Super Admin | Super Admin |
 | `expenses` | Admin/Manager | Admin/Manager | Admin/Manager | Admin/Manager |
+
+> ⚠️ **Nota:** INSERT público em `appointments` foi REMOVIDO. Agendamentos só podem ser criados via RPC `create_public_appointment`.
 
 ### Políticas de Bloqueio Anônimo
 

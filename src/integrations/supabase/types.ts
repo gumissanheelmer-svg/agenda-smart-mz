@@ -696,6 +696,19 @@ export type Database = {
         }
         Returns: string
       }
+      create_public_appointment: {
+        Args: {
+          p_appointment_date: string
+          p_appointment_time: string
+          p_barber_id: string
+          p_barbershop_id: string
+          p_client_name: string
+          p_client_phone: string
+          p_notes?: string
+          p_service_id: string
+        }
+        Returns: Json
+      }
       get_appointment_summary_for_professional: {
         Args: { p_barber_id: string; p_date: string }
         Returns: {
@@ -715,6 +728,10 @@ export type Database = {
           working_hours: Json
         }[]
       }
+      get_barbershop_whatsapp_for_appointment: {
+        Args: { p_appointment_id: string }
+        Returns: string
+      }
       get_professionals_for_service: {
         Args: { p_barbershop_id: string; p_service_id: string }
         Returns: {
@@ -722,6 +739,13 @@ export type Database = {
           name: string
           specialty: string
           working_hours: Json
+        }[]
+      }
+      get_public_appointments_for_day: {
+        Args: { p_barber_id: string; p_date: string }
+        Returns: {
+          appointment_time: string
+          service_duration: number
         }[]
       }
       get_public_barbers: {
@@ -748,7 +772,6 @@ export type Database = {
           secondary_color: string
           slug: string
           text_color: string
-          whatsapp_number: string
         }[]
       }
       get_public_business: {
@@ -770,11 +793,34 @@ export type Database = {
           whatsapp_number: string
         }[]
       }
+      get_public_professional_schedules: {
+        Args: { p_barbershop_id: string }
+        Returns: {
+          barber_id: string
+          break_end: string
+          break_start: string
+          day_of_week: number
+          end_time: string
+          id: string
+          is_working_day: boolean
+          start_time: string
+        }[]
+      }
+      get_public_professional_time_off: {
+        Args: { p_barbershop_id: string }
+        Returns: {
+          barber_id: string
+          id: string
+          off_date: string
+          reason: string
+        }[]
+      }
       get_public_professionals: {
-        Args: { p_business_id: string }
+        Args: { p_barbershop_id: string }
         Returns: {
           id: string
           name: string
+          specialty: string
           working_hours: Json
         }[]
       }
@@ -786,9 +832,18 @@ export type Database = {
           working_hours: Json
         }[]
       }
+      get_public_service_professionals: {
+        Args: { p_barbershop_id: string }
+        Returns: {
+          id: string
+          professional_id: string
+          service_id: string
+        }[]
+      }
       get_public_services: {
         Args: { p_barbershop_id: string }
         Returns: {
+          allowed_business_types: string[]
           duration: number
           id: string
           name: string

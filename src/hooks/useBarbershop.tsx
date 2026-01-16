@@ -6,7 +6,6 @@ export interface Barbershop {
   slug: string;
   name: string;
   logo_url: string | null;
-  whatsapp_number: string | null;
   primary_color: string;
   secondary_color: string;
   background_color: string;

@@ -39,6 +39,7 @@ interface ExistingAppointment {
   id: string;
   appointment_time: string;
   service_id: string;
+  _duration?: number; // Duration from RPC (if available)
 }
 
 // Validação de telefone moçambicano (84, 85, 86, 87, 82, 83)
@@ -132,7 +133,7 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
       // Carregar serviços, profissionais e mapeamentos em paralelo
       const [servicesRes, professionalsRes, mappingsRes] = await Promise.all([
         supabase.rpc('get_valid_services', { p_barbershop_id: currentBarbershopId }),
-        supabase.rpc('get_public_professionals', { p_business_id: currentBarbershopId }),
+        supabase.rpc('get_public_professionals', { p_barbershop_id: currentBarbershopId }),
         supabase.rpc('get_service_professional_mappings', { p_barbershop_id: currentBarbershopId })
       ]);
 
@@ -179,9 +180,7 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
         setServiceProfessionalMap(map);
       }
 
-      if (barbershop?.whatsapp_number) {
-        setWhatsappNumber(barbershop.whatsapp_number);
-      }
+      // WhatsApp number is now fetched securely via RPC after appointment creation
 
       setDataLoaded(true);
     } catch (error) {
@@ -210,18 +209,32 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
   };
 
   const fetchAppointmentsForDay = async () => {
-    if (!formData.appointmentDate || !currentBarbershopId) return;
+    if (!formData.appointmentDate || !formData.barberId) return;
 
-    const { data } = await supabase
-      .from('appointments')
-      .select('id, appointment_time, service_id')
-      .eq('barber_id', formData.barberId)
-      .eq('appointment_date', format(formData.appointmentDate, 'yyyy-MM-dd'))
-      .eq('barbershop_id', currentBarbershopId)
-      .neq('status', 'cancelled');
+    try {
+      // Use secure RPC to get appointments (returns only time and duration, no client data)
+      const { data, error } = await supabase.rpc('get_public_appointments_for_day', {
+        p_barber_id: formData.barberId,
+        p_date: format(formData.appointmentDate, 'yyyy-MM-dd')
+      });
 
-    if (data) {
-      setExistingAppointments(data);
+      if (error) {
+        console.error('Error fetching appointments:', error);
+        return;
+      }
+
+      if (data) {
+        // Map to existing format for generateTimeSlots compatibility
+        const mapped = data.map((apt: { appointment_time: string; service_duration: number }, index: number) => ({
+          id: `temp-${index}`,
+          appointment_time: apt.appointment_time,
+          service_id: '', // Not needed, duration is provided
+          _duration: apt.service_duration // Store duration directly
+        }));
+        setExistingAppointments(mapped);
+      }
+    } catch (err) {
+      console.error('Error fetching appointments:', err);
     }
   };
 
@@ -247,9 +260,8 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
     existingAppointments.forEach(apt => {
       const [h, m] = apt.appointment_time.split(':').map(Number);
       const startMinutes = h * 60 + m;
-      // Buscar duração do serviço agendado (assumir 30 min se não encontrar)
-      const aptService = services.find(s => s.id === apt.service_id);
-      const aptDuration = aptService?.duration || 30;
+      // Use duration from RPC if available, otherwise lookup from services
+      const aptDuration = apt._duration || (apt.service_id ? services.find(s => s.id === apt.service_id)?.duration : 30) || 30;
       occupiedSlots.push({ start: startMinutes, end: startMinutes + aptDuration });
     });
 
@@ -293,45 +305,35 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
     setIsLoading(true);
     setBookingError('');
 
-    const appointmentData = {
-      client_name: formData.clientName.trim(),
-      client_phone: formData.clientPhone.trim(),
-      service_id: formData.serviceId,
-      barber_id: formData.barberId,
-      appointment_date: format(formData.appointmentDate, 'yyyy-MM-dd'),
-      appointment_time: formData.appointmentTime,
-      status: 'pending',
-      barbershop_id: currentBarbershopId,
-    };
-
     try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .insert(appointmentData)
-        .select('*')
-        .single();
+      // Use secure RPC function to create appointment (SECURITY DEFINER)
+      const { data, error } = await supabase.rpc('create_public_appointment', {
+        p_barbershop_id: currentBarbershopId,
+        p_barber_id: formData.barberId,
+        p_service_id: formData.serviceId,
+        p_client_name: formData.clientName.trim(),
+        p_client_phone: formData.clientPhone.trim(),
+        p_appointment_date: format(formData.appointmentDate, 'yyyy-MM-dd'),
+        p_appointment_time: formData.appointmentTime,
+        p_notes: null
+      });
 
       if (error) {
-        console.error('Booking error:', error);
-        
-        // Extrair mensagem de erro amigável
-        let errorMessage = 'Não foi possível realizar o agendamento.';
-        if (error.message) {
-          if (error.message.includes('Horário indisponível')) {
-            errorMessage = 'Este horário não está mais disponível. Por favor, escolha outro horário.';
-          } else if (error.message.includes('profissional não realiza')) {
-            errorMessage = 'Este profissional não realiza o serviço selecionado.';
-          } else if (error.message.includes('Serviço não encontrado')) {
-            errorMessage = 'Serviço não disponível. Por favor, selecione outro.';
-          } else if (error.message.includes('Profissional não encontrado')) {
-            errorMessage = 'Profissional não disponível. Por favor, selecione outro.';
-          } else if (error.message.includes('Estabelecimento')) {
-            errorMessage = 'Estabelecimento temporariamente indisponível.';
-          } else {
-            errorMessage = error.message;
-          }
-        }
-        
+        console.error('Booking RPC error:', error);
+        setBookingError('Não foi possível realizar o agendamento. Tente novamente.');
+        toast({
+          title: 'Erro ao agendar',
+          description: 'Não foi possível realizar o agendamento. Tente novamente.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // RPC returns jsonb with success and appointment_id or error
+      const result = data as { success: boolean; appointment_id?: string; error?: string };
+
+      if (!result.success) {
+        const errorMessage = result.error || 'Não foi possível realizar o agendamento.';
         setBookingError(errorMessage);
         toast({
           title: 'Erro ao agendar',
@@ -341,7 +343,28 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
         return;
       }
 
-      setCreatedAppointment(data);
+      // Get WhatsApp number using secure RPC
+      let fetchedWhatsapp = whatsappNumber;
+      if (result.appointment_id) {
+        const { data: whatsappData } = await supabase.rpc('get_barbershop_whatsapp_for_appointment', {
+          p_appointment_id: result.appointment_id
+        });
+        if (whatsappData) {
+          fetchedWhatsapp = whatsappData;
+          setWhatsappNumber(whatsappData);
+        }
+      }
+
+      // Create appointment object for display
+      setCreatedAppointment({
+        id: result.appointment_id,
+        client_name: formData.clientName.trim(),
+        client_phone: formData.clientPhone.trim(),
+        barber_id: formData.barberId,
+        service_id: formData.serviceId,
+        appointment_date: format(formData.appointmentDate, 'yyyy-MM-dd'),
+        appointment_time: formData.appointmentTime,
+      });
       setIsSuccess(true);
 
       toast({
