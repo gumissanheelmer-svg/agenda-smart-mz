@@ -277,7 +277,8 @@ export default function AppointmentsList() {
                         </Button>
                       </>
                     )}
-                    {apt.status === 'confirmed' && !isBarbershop && (
+                    {/* Barbearias: Iniciar → in_progress, depois Concluir */}
+                    {apt.status === 'confirmed' && isBarbershop && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -288,16 +289,19 @@ export default function AppointmentsList() {
                         Iniciar
                       </Button>
                     )}
-                    {apt.status === 'confirmed' && isBarbershop && (
+                    {/* Salões/Híbridos: Vai direto para Concluir */}
+                    {apt.status === 'confirmed' && !isBarbershop && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => updateStatus(apt.id, 'completed')}
                         className="text-blue-500 border-blue-500/50 hover:bg-blue-500/10"
                       >
+                        <Check className="w-4 h-4 mr-1" />
                         Concluir
                       </Button>
                     )}
+                    {/* Barbearias: Após iniciar, pode concluir */}
                     {apt.status === 'in_progress' && (
                       <Button
                         size="sm"
@@ -305,6 +309,7 @@ export default function AppointmentsList() {
                         onClick={() => updateStatus(apt.id, 'completed')}
                         className="text-blue-500 border-blue-500/50 hover:bg-blue-500/10"
                       >
+                        <Check className="w-4 h-4 mr-1" />
                         Concluir
                       </Button>
                     )}
