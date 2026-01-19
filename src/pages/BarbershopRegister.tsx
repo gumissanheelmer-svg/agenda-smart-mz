@@ -73,26 +73,46 @@ export default function BarbershopRegister() {
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        toast({
-          title: "Arquivo muito grande",
-          description: "O logo deve ter no máximo 2MB",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({
-          ...prev,
-          logoFile: file,
-          logoPreview: reader.result as string,
-        }));
-      };
-      reader.readAsDataURL(file);
+    if (!file) {
+      toast({
+        title: "Nenhuma imagem selecionada",
+        description: "Selecione uma imagem para o logo.",
+        variant: "destructive",
+      });
+      return;
     }
+    
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Formato inválido",
+        description: "No iPhone, envie JPG/PNG (HEIC não é suportado).",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate file size (5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast({
+        title: "Arquivo muito grande",
+        description: "O logo deve ter no máximo 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFormData(prev => ({
+        ...prev,
+        logoFile: file,
+        logoPreview: reader.result as string,
+      }));
+    };
+    reader.readAsDataURL(file);
   };
 
   const validateStep1 = () => {
@@ -285,20 +305,37 @@ export default function BarbershopRegister() {
       // 3. Upload logo if provided
       let logoUrl: string | null = null;
       if (formData.logoFile) {
-        const fileExt = formData.logoFile.name.split('.').pop();
+        const fileExt = formData.logoFile.name.split('.').pop()?.toLowerCase() || 'jpg';
         const filePath = `${userId}/${Date.now()}.${fileExt}`;
         
-        const { error: uploadError } = await supabase.storage
-          .from('logos')
-          .upload(filePath, formData.logoFile);
-
-        if (uploadError) {
-          console.error('Logo upload error:', uploadError);
-        } else {
-          const { data: urlData } = supabase.storage
+        try {
+          const { error: uploadError } = await supabase.storage
             .from('logos')
-            .getPublicUrl(filePath);
-          logoUrl = urlData.publicUrl;
+            .upload(filePath, formData.logoFile, {
+              upsert: true,
+              contentType: formData.logoFile.type
+            });
+
+          if (uploadError) {
+            console.error('Logo upload error:', uploadError);
+            toast({
+              title: "Erro no upload do logo",
+              description: uploadError.message,
+              variant: "destructive",
+            });
+          } else {
+            const { data: urlData } = supabase.storage
+              .from('logos')
+              .getPublicUrl(filePath);
+            logoUrl = urlData.publicUrl;
+          }
+        } catch (error: any) {
+          console.error('Logo upload exception:', error);
+          toast({
+            title: "Erro inesperado no upload",
+            description: error?.message || 'Erro desconhecido',
+            variant: "destructive",
+          });
         }
       }
 
@@ -664,7 +701,7 @@ export default function BarbershopRegister() {
                     <label className="cursor-pointer">
                       <input
                         type="file"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp"
                         className="hidden"
                         onChange={handleLogoChange}
                       />

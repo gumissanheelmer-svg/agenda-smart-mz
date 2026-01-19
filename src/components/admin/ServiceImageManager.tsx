@@ -55,56 +55,116 @@ export function ServiceImageManager({ serviceId, barbershopId, onImagesChange }:
   // Upload multiple images
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (!files || files.length === 0 || !serviceId) return;
+    if (!files || files.length === 0) {
+      toast({
+        title: 'Nenhuma imagem selecionada',
+        description: 'Selecione uma imagem para enviar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!serviceId) return;
+
+    // Validate all files first
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    const validFiles: File[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      if (!allowedTypes.includes(file.type)) {
+        toast({
+          title: 'Formato inválido',
+          description: `${file.name}: No iPhone, envie JPG/PNG (HEIC não é suportado).`,
+          variant: 'destructive',
+        });
+        continue;
+      }
+      
+      if (file.size > maxSize) {
+        toast({
+          title: 'Arquivo muito grande',
+          description: `${file.name}: O tamanho máximo é 5MB.`,
+          variant: 'destructive',
+        });
+        continue;
+      }
+      
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) {
+      event.target.value = '';
+      return;
+    }
 
     setIsUploading(true);
     const uploadedImages: ServiceImage[] = [];
     const maxSortOrder = images.length > 0 ? Math.max(...images.map(i => i.sort_order)) : -1;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileExt = file.name.split('.').pop();
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${Date.now()}-${i}.${fileExt}`;
       const filePath = `${barbershopId}/${serviceId}/${fileName}`;
 
-      // Upload to storage
-      const { error: uploadError } = await supabase.storage
-        .from('service_images')
-        .upload(filePath, file, { upsert: false });
+      try {
+        // Upload to storage with explicit contentType
+        const { error: uploadError } = await supabase.storage
+          .from('service_images')
+          .upload(filePath, file, { 
+            upsert: true, 
+            contentType: file.type 
+          });
 
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          toast({
+            title: 'Erro no upload',
+            description: `Falha ao enviar ${file.name}: ${uploadError.message}`,
+            variant: 'destructive',
+          });
+          continue;
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('service_images')
+          .getPublicUrl(filePath);
+
+        // Insert into database
+        const isCover = images.length === 0 && i === 0;
+        const { data: insertData, error: insertError } = await (supabase as any)
+          .from('service_images')
+          .insert({
+            service_id: serviceId,
+            barbershop_id: barbershopId,
+            image_url: urlData.publicUrl,
+            is_cover: isCover,
+            sort_order: maxSortOrder + 1 + i,
+          })
+          .select('id, image_url, is_cover, sort_order')
+          .single();
+
+        if (insertError) {
+          console.error('Insert error:', insertError);
+          toast({
+            title: 'Erro ao salvar',
+            description: `Imagem enviada mas falhou ao salvar no banco: ${insertError.message}`,
+            variant: 'destructive',
+          });
+        } else if (insertData) {
+          uploadedImages.push(insertData);
+        }
+      } catch (error: any) {
+        console.error('Upload exception:', error);
         toast({
-          title: 'Erro no upload',
-          description: `Falha ao enviar ${file.name}`,
+          title: 'Erro inesperado',
+          description: `Falha ao enviar ${file.name}: ${error?.message || 'Erro desconhecido'}`,
           variant: 'destructive',
         });
-        continue;
-      }
-
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from('service_images')
-        .getPublicUrl(filePath);
-
-      // Insert into database
-      const isCover = images.length === 0 && i === 0;
-      const { data: insertData, error: insertError } = await (supabase as any)
-        .from('service_images')
-        .insert({
-          service_id: serviceId,
-          barbershop_id: barbershopId,
-          image_url: urlData.publicUrl,
-          is_cover: isCover,
-          sort_order: maxSortOrder + 1 + i,
-        })
-        .select('id, image_url, is_cover, sort_order')
-        .single();
-
-      if (insertError) {
-        console.error('Insert error:', insertError);
-      } else if (insertData) {
-        uploadedImages.push(insertData);
       }
     }
 
@@ -212,7 +272,7 @@ export function ServiceImageManager({ serviceId, barbershopId, onImagesChange }:
           <input
             type="file"
             multiple
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             onChange={handleUpload}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             disabled={isUploading}

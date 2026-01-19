@@ -134,24 +134,34 @@ export default function SettingsPage() {
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !settings) return;
+    if (!file) {
+      toast({
+        title: 'Nenhuma imagem selecionada',
+        description: 'Selecione uma imagem para enviar.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    if (!settings) return;
 
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       toast({
-        title: 'Tipo inválido',
-        description: 'Apenas JPG, PNG e WEBP são permitidos.',
+        title: 'Formato inválido',
+        description: 'No iPhone, envie JPG/PNG (HEIC não é suportado).',
         variant: 'destructive',
       });
       return;
     }
 
-    // Validate file size (2MB)
-    if (file.size > 2 * 1024 * 1024) {
+    // Validate file size (5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
       toast({
         title: 'Arquivo muito grande',
-        description: 'O tamanho máximo permitido é 2MB.',
+        description: 'O tamanho máximo permitido é 5MB.',
         variant: 'destructive',
       });
       return;
@@ -159,52 +169,66 @@ export default function SettingsPage() {
 
     // Show preview
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreviewImage(e.target?.result as string);
+    reader.onload = (ev) => {
+      setPreviewImage(ev.target?.result as string);
     };
     reader.readAsDataURL(file);
 
     // Upload to Supabase Storage
     setIsUploading(true);
-    const fileExt = file.name.split('.').pop();
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const fileName = `${settings.id}/background.${fileExt}`;
 
-    // Delete old file if exists
-    if (settings.background_image_url) {
-      const oldPath = settings.background_image_url.split('/backgrounds/')[1];
-      if (oldPath) {
-        await supabase.storage.from('backgrounds').remove([oldPath]);
+    try {
+      // Delete old file if exists
+      if (settings.background_image_url) {
+        const oldPath = settings.background_image_url.split('/backgrounds/')[1];
+        if (oldPath) {
+          await supabase.storage.from('backgrounds').remove([oldPath]);
+        }
       }
-    }
 
-    const { error: uploadError } = await supabase.storage
-      .from('backgrounds')
-      .upload(fileName, file, { upsert: true });
+      const { error: uploadError } = await supabase.storage
+        .from('backgrounds')
+        .upload(fileName, file, { 
+          upsert: true,
+          contentType: file.type 
+        });
 
-    if (uploadError) {
+      if (uploadError) {
+        toast({
+          title: 'Erro no upload',
+          description: `Não foi possível enviar a imagem: ${uploadError.message}`,
+          variant: 'destructive',
+        });
+        setIsUploading(false);
+        setPreviewImage(null);
+        return;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('backgrounds')
+        .getPublicUrl(fileName);
+
+      setSettings({ ...settings, background_image_url: publicUrl });
+      setPreviewImage(null);
+      setIsUploading(false);
+
       toast({
-        title: 'Erro no upload',
-        description: 'Não foi possível enviar a imagem.',
+        title: 'Imagem carregada',
+        description: 'Clique em Salvar para aplicar as alterações.',
+      });
+    } catch (error: any) {
+      console.error('Upload exception:', error);
+      toast({
+        title: 'Erro inesperado',
+        description: `Falha no upload: ${error?.message || 'Erro desconhecido'}`,
         variant: 'destructive',
       });
       setIsUploading(false);
       setPreviewImage(null);
-      return;
     }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('backgrounds')
-      .getPublicUrl(fileName);
-
-    setSettings({ ...settings, background_image_url: publicUrl });
-    setPreviewImage(null);
-    setIsUploading(false);
-
-    toast({
-      title: 'Imagem carregada',
-      description: 'Clique em Salvar para aplicar as alterações.',
-    });
   };
 
   const handleRemoveImage = async () => {
