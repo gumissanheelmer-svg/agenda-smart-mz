@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
-import { Settings as SettingsIcon, Save, MessageCircle, Palette, Image, Upload, Trash2 } from 'lucide-react';
+import { Settings as SettingsIcon, Save, MessageCircle, Palette, Image, Upload, Trash2, ImageIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -49,15 +49,26 @@ const getBusinessLabels = (type: string) => {
   }
 };
 
+// Allowed image types
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [settings, setSettings] = useState<BarbershopSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Upload states
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isUploadingBackground, setIsUploadingBackground] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [backgroundPreview, setBackgroundPreview] = useState<string | null>(null);
+  
+  // File input refs
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -68,7 +79,6 @@ export default function SettingsPage() {
   const fetchSettings = async () => {
     setIsLoading(true);
     
-    // First get user's barbershop_id from user_roles
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('barbershop_id')
@@ -132,64 +142,51 @@ export default function SettingsPage() {
     setIsSaving(false);
   };
 
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      toast({
-        title: 'Nenhuma imagem selecionada',
-        description: 'Selecione uma imagem para enviar.',
-        variant: 'destructive',
-      });
-      return;
+  // Validate file before upload
+  const validateFile = (file: File): string | null => {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return 'No iPhone, envie JPG/PNG (HEIC não é suportado).';
     }
-    
-    if (!settings) return;
-
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      toast({
-        title: 'Formato inválido',
-        description: 'No iPhone, envie JPG/PNG (HEIC não é suportado).',
-        variant: 'destructive',
-      });
-      return;
+    if (file.size > MAX_SIZE) {
+      return 'O tamanho máximo permitido é 5MB.';
     }
+    return null;
+  };
 
-    // Validate file size (5MB)
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) {
-      toast({
-        title: 'Arquivo muito grande',
-        description: 'O tamanho máximo permitido é 5MB.',
-        variant: 'destructive',
-      });
+  // Generic upload handler
+  const handleImageUpload = async (
+    file: File,
+    bucket: 'logos' | 'backgrounds',
+    fileName: string,
+    setUploading: (v: boolean) => void,
+    setPreview: (v: string | null) => void,
+    currentUrl: string | null,
+    onSuccess: (url: string) => void
+  ) => {
+    const error = validateFile(file);
+    if (error) {
+      toast({ title: 'Formato inválido', description: error, variant: 'destructive' });
       return;
     }
 
     // Show preview
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setPreviewImage(ev.target?.result as string);
-    };
+    reader.onload = (ev) => setPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
 
-    // Upload to Supabase Storage
-    setIsUploading(true);
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const fileName = `${settings.id}/background.${fileExt}`;
+    setUploading(true);
 
     try {
       // Delete old file if exists
-      if (settings.background_image_url) {
-        const oldPath = settings.background_image_url.split('/backgrounds/')[1];
+      if (currentUrl) {
+        const oldPath = currentUrl.split(`/${bucket}/`)[1];
         if (oldPath) {
-          await supabase.storage.from('backgrounds').remove([oldPath]);
+          await supabase.storage.from(bucket).remove([oldPath]);
         }
       }
 
       const { error: uploadError } = await supabase.storage
-        .from('backgrounds')
+        .from(bucket)
         .upload(fileName, file, { 
           upsert: true,
           contentType: file.type 
@@ -201,37 +198,95 @@ export default function SettingsPage() {
           description: `Não foi possível enviar a imagem: ${uploadError.message}`,
           variant: 'destructive',
         });
-        setIsUploading(false);
-        setPreviewImage(null);
+        setPreview(null);
+        setUploading(false);
         return;
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('backgrounds')
-        .getPublicUrl(fileName);
-
-      setSettings({ ...settings, background_image_url: publicUrl });
-      setPreviewImage(null);
-      setIsUploading(false);
-
-      toast({
-        title: 'Imagem carregada',
-        description: 'Clique em Salvar para aplicar as alterações.',
-      });
-    } catch (error: any) {
-      console.error('Upload exception:', error);
+      const { data: { publicUrl } } = supabase.storage.from(bucket).getPublicUrl(fileName);
+      
+      onSuccess(publicUrl);
+      setPreview(null);
+      toast({ title: 'Imagem carregada', description: 'Clique em Salvar para aplicar.' });
+    } catch (err: any) {
+      console.error('Upload exception:', err);
       toast({
         title: 'Erro inesperado',
-        description: `Falha no upload: ${error?.message || 'Erro desconhecido'}`,
+        description: `Falha no upload: ${err?.message || 'Erro desconhecido'}`,
         variant: 'destructive',
       });
-      setIsUploading(false);
-      setPreviewImage(null);
+      setPreview(null);
+    } finally {
+      setUploading(false);
     }
   };
 
-  const handleRemoveImage = async () => {
+  // Logo upload handler
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings) {
+      toast({ title: 'Nenhuma imagem', description: 'Selecione uma imagem.', variant: 'destructive' });
+      return;
+    }
+    
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `${settings.id}/logo.${fileExt}`;
+    
+    await handleImageUpload(
+      file,
+      'logos',
+      fileName,
+      setIsUploadingLogo,
+      setLogoPreview,
+      settings.logo_url,
+      (url) => setSettings({ ...settings, logo_url: url })
+    );
+    
+    // Reset input
+    if (logoInputRef.current) logoInputRef.current.value = '';
+  };
+
+  // Background upload handler
+  const handleBackgroundSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings) {
+      toast({ title: 'Nenhuma imagem', description: 'Selecione uma imagem.', variant: 'destructive' });
+      return;
+    }
+    
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `${settings.id}/background.${fileExt}`;
+    
+    await handleImageUpload(
+      file,
+      'backgrounds',
+      fileName,
+      setIsUploadingBackground,
+      setBackgroundPreview,
+      settings.background_image_url,
+      (url) => setSettings({ ...settings, background_image_url: url })
+    );
+    
+    // Reset input
+    if (backgroundInputRef.current) backgroundInputRef.current.value = '';
+  };
+
+  // Remove logo
+  const handleRemoveLogo = async () => {
+    if (!settings?.logo_url) return;
+
+    const path = settings.logo_url.split('/logos/')[1];
+    if (path) {
+      await supabase.storage.from('logos').remove([path]);
+    }
+
+    setSettings({ ...settings, logo_url: null });
+    setLogoPreview(null);
+    toast({ title: 'Logo removido', description: 'Clique em Salvar para aplicar.' });
+  };
+
+  // Remove background
+  const handleRemoveBackground = async () => {
     if (!settings?.background_image_url) return;
 
     const path = settings.background_image_url.split('/backgrounds/')[1];
@@ -240,20 +295,16 @@ export default function SettingsPage() {
     }
 
     setSettings({ ...settings, background_image_url: null });
-    setPreviewImage(null);
-
-    toast({
-      title: 'Imagem removida',
-      description: 'Clique em Salvar para aplicar as alterações.',
-    });
+    setBackgroundPreview(null);
+    toast({ title: 'Imagem de fundo removida', description: 'Clique em Salvar para aplicar.' });
   };
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-display font-bold text-foreground">Configurações</h1>
+      <div className="w-full max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 pb-safe space-y-6">
+        <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground">Configurações</h1>
         <Card className="border-border/50 bg-card/80">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             <div className="space-y-4">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="h-12 bg-muted animate-pulse rounded" />
@@ -267,13 +318,13 @@ export default function SettingsPage() {
 
   if (!settings) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-display font-bold text-foreground">Configurações</h1>
+      <div className="w-full max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 pb-safe space-y-6">
+        <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground">Configurações</h1>
         <Card className="border-border/50 bg-card/80">
-          <CardContent className="p-8 text-center">
-            <p className="text-muted-foreground">Bem-vindo! Configure seu negócio para começar.</p>
+          <CardContent className="p-6 sm:p-8 text-center">
+            <p className="text-muted-foreground text-sm sm:text-base">Bem-vindo! Configure seu negócio para começar.</p>
             <Button 
-              className="mt-4" 
+              className="mt-4 w-full sm:w-auto" 
               onClick={() => window.location.href = '/register'}
             >
               Criar Negócio
@@ -287,20 +338,26 @@ export default function SettingsPage() {
   const labels = getBusinessLabels(settings.business_type);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-display font-bold text-foreground">Configurações</h1>
-        <Button variant="gold" onClick={handleSave} disabled={isSaving}>
+    <div className="w-full max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 pb-safe space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground">Configurações</h1>
+        <Button 
+          variant="gold" 
+          onClick={handleSave} 
+          disabled={isSaving}
+          className="w-full sm:w-auto"
+        >
           <Save className="w-4 h-4 mr-2" />
-          {isSaving ? 'Salvando...' : 'Salvar'}
+          {isSaving ? 'Salvando...' : 'Salvar Alterações'}
         </Button>
       </div>
 
       <div className="grid gap-6">
         {/* Business Info */}
         <Card className="border-border/50 bg-card/80">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-display flex items-center gap-2 text-lg sm:text-xl">
               <SettingsIcon className="w-5 h-5 text-primary" />
               Informações do Negócio
             </CardTitle>
@@ -308,150 +365,212 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="business_name">{labels.businessName}</Label>
+                <Label htmlFor="business_name" className="text-sm sm:text-base">{labels.businessName}</Label>
                 <Input
                   id="business_name"
                   value={settings.name}
                   onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                  className="bg-input border-border"
+                  className="bg-input border-border w-full"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="slug">URL (slug)</Label>
+                <Label htmlFor="slug" className="text-sm sm:text-base">URL (slug)</Label>
                 <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-sm">/b/</span>
+                  <span className="text-muted-foreground text-xs sm:text-sm">/b/</span>
                   <Input
                     id="slug"
                     value={settings.slug}
                     onChange={(e) => setSettings({ ...settings, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
-                    className="bg-input border-border"
+                    className="bg-input border-border flex-1"
                     placeholder={labels.slugPlaceholder}
                   />
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="logo_url">URL do Logotipo (opcional)</Label>
-              <Input
-                id="logo_url"
-                value={settings.logo_url || ''}
-                onChange={(e) => setSettings({ ...settings, logo_url: e.target.value || null })}
-                className="bg-input border-border"
-                placeholder="https://exemplo.com/logo.png"
-              />
+            
+            {/* Logo Upload Section */}
+            <div className="space-y-3 pt-2 border-t border-border/50">
+              <Label className="text-sm sm:text-base font-medium">Logotipo</Label>
+              
+              {/* Logo Preview */}
+              <div className="flex flex-col sm:flex-row gap-4 items-start">
+                <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden border border-border bg-muted flex-shrink-0">
+                  {(logoPreview || settings.logo_url) ? (
+                    <img 
+                      src={logoPreview || settings.logo_url || ''} 
+                      alt="Logo" 
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                      <ImageIcon className="w-8 h-8 opacity-50" />
+                      <p className="text-xs mt-1">Sem logo</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex-1 space-y-3 w-full">
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleLogoSelect}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={isUploadingLogo}
+                      className="flex-1 sm:flex-none"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      {isUploadingLogo ? 'Enviando...' : 'Carregar Logo'}
+                    </Button>
+                    {settings.logo_url && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleRemoveLogo}
+                        className="flex-1 sm:flex-none"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Remover
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {/* URL fallback (optional) */}
+                  <div className="space-y-1">
+                    <Label htmlFor="logo_url" className="text-xs text-muted-foreground">Ou insira uma URL (opcional)</Label>
+                    <Input
+                      id="logo_url"
+                      value={settings.logo_url || ''}
+                      onChange={(e) => setSettings({ ...settings, logo_url: e.target.value || null })}
+                      className="bg-input border-border text-sm"
+                      placeholder="https://exemplo.com/logo.png"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                Formatos: JPG, PNG, WEBP. Tamanho máximo: 5MB.
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            {/* Operating Hours */}
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/50">
               <div className="space-y-2">
-                <Label htmlFor="opening_time">Horário de Abertura</Label>
+                <Label htmlFor="opening_time" className="text-sm sm:text-base">Abertura</Label>
                 <Input
                   id="opening_time"
                   type="time"
                   value={settings.opening_time || '09:00'}
                   onChange={(e) => setSettings({ ...settings, opening_time: e.target.value })}
-                  className="bg-input border-border"
+                  className="bg-input border-border w-full"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="closing_time">Horário de Fechamento</Label>
+                <Label htmlFor="closing_time" className="text-sm sm:text-base">Fechamento</Label>
                 <Input
                   id="closing_time"
                   type="time"
                   value={settings.closing_time || '18:00'}
                   onChange={(e) => setSettings({ ...settings, closing_time: e.target.value })}
-                  className="bg-input border-border"
+                  className="bg-input border-border w-full"
                 />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Background Image - Configurações do Site */}
+        {/* Background Image Settings */}
         <Card className="border-border/50 bg-card/80">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-display flex items-center gap-2 text-lg sm:text-xl">
               <Image className="w-5 h-5 text-primary" />
-              Configurações do Site
+              Imagem de Fundo do Site
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Image Upload Section */}
-            <div className="space-y-4">
-              <Label className="text-base font-medium">Imagem de Fundo do Site</Label>
-              
-              {/* Preview */}
-              <div className="relative w-full h-48 rounded-lg overflow-hidden border border-border bg-muted">
-                {(previewImage || settings.background_image_url) ? (
-                  <>
-                    <img 
-                      src={previewImage || settings.background_image_url || ''} 
-                      alt="Preview" 
-                      className="w-full h-full object-cover"
-                    />
-                    {/* Overlay preview */}
-                    <div 
-                      className={`absolute inset-0 bg-black ${
-                        settings.background_overlay_level === 'low' ? 'opacity-30' :
-                        settings.background_overlay_level === 'high' ? 'opacity-70' : 'opacity-50'
-                      }`}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <p className="text-white font-display text-xl font-bold">{settings.name}</p>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                    <Image className="w-12 h-12 mb-2 opacity-50" />
-                    <p className="text-sm">Nenhuma imagem de fundo</p>
-                    <p className="text-xs">Será usado o fundo padrão</p>
+          <CardContent className="space-y-4">
+            {/* Background Preview */}
+            <div className="relative w-full h-40 sm:h-48 rounded-lg overflow-hidden border border-border bg-muted">
+              {(backgroundPreview || settings.background_image_url) ? (
+                <>
+                  <img 
+                    src={backgroundPreview || settings.background_image_url || ''} 
+                    alt="Background Preview" 
+                    className="w-full h-full object-cover"
+                  />
+                  <div 
+                    className={`absolute inset-0 bg-black ${
+                      settings.background_overlay_level === 'low' ? 'opacity-30' :
+                      settings.background_overlay_level === 'high' ? 'opacity-70' : 'opacity-50'
+                    }`}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <p className="text-white font-display text-lg sm:text-xl font-bold">{settings.name}</p>
                   </div>
-                )}
-              </div>
-
-              {/* Upload Controls */}
-              <div className="flex flex-wrap gap-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={handleImageSelect}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {isUploading ? 'Enviando...' : 'Carregar Imagem'}
-                </Button>
-                {settings.background_image_url && (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={handleRemoveImage}
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Remover
-                  </Button>
-                )}
-              </div>
-
-              <p className="text-sm text-muted-foreground">
-                Formatos: JPG, PNG, WEBP. Tamanho máximo: 2MB.
-              </p>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                  <Image className="w-10 h-10 sm:w-12 sm:h-12 opacity-50" />
+                  <p className="text-sm mt-2">Nenhuma imagem de fundo</p>
+                  <p className="text-xs">Será usado o fundo padrão</p>
+                </div>
+              )}
             </div>
 
+            {/* Upload Controls */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                ref={backgroundInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleBackgroundSelect}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => backgroundInputRef.current?.click()}
+                disabled={isUploadingBackground}
+                className="w-full sm:w-auto"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {isUploadingBackground ? 'Enviando...' : 'Carregar Imagem'}
+              </Button>
+              {settings.background_image_url && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleRemoveBackground}
+                  className="w-full sm:w-auto"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Remover
+                </Button>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Formatos: JPG, PNG, WEBP. Tamanho máximo: 5MB.
+            </p>
+
             {/* Overlay Level */}
-            <div className="space-y-3">
-              <Label htmlFor="overlay_level">Intensidade do Overlay</Label>
+            <div className="space-y-2 pt-2 border-t border-border/50">
+              <Label htmlFor="overlay_level" className="text-sm sm:text-base">Intensidade do Overlay</Label>
               <Select
                 value={settings.background_overlay_level}
                 onValueChange={(value: 'low' | 'medium' | 'high') => 
                   setSettings({ ...settings, background_overlay_level: value })
                 }
               >
-                <SelectTrigger className="w-48 bg-input border-border">
+                <SelectTrigger className="w-full sm:w-48 bg-input border-border">
                   <SelectValue placeholder="Selecione" />
                 </SelectTrigger>
                 <SelectContent>
@@ -460,8 +579,8 @@ export default function SettingsPage() {
                   <SelectItem value="high">Alto (70%)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-sm text-muted-foreground">
-                O overlay escuro garante a legibilidade do texto sobre a imagem.
+              <p className="text-xs text-muted-foreground">
+                O overlay escuro garante legibilidade do texto sobre a imagem.
               </p>
             </div>
           </CardContent>
@@ -469,23 +588,23 @@ export default function SettingsPage() {
 
         {/* WhatsApp */}
         <Card className="border-border/50 bg-card/80">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-display flex items-center gap-2 text-lg sm:text-xl">
               <MessageCircle className="w-5 h-5 text-primary" />
               WhatsApp
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="whatsapp">Número do WhatsApp</Label>
+              <Label htmlFor="whatsapp" className="text-sm sm:text-base">Número do WhatsApp</Label>
               <Input
                 id="whatsapp"
                 value={settings.whatsapp_number || ''}
                 onChange={(e) => setSettings({ ...settings, whatsapp_number: e.target.value })}
                 placeholder="+258 84 000 0000"
-                className="bg-input border-border"
+                className="bg-input border-border w-full"
               />
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Este número será usado para receber confirmações de agendamento.
               </p>
             </div>
@@ -494,92 +613,105 @@ export default function SettingsPage() {
 
         {/* Colors */}
         <Card className="border-border/50 bg-card/80">
-          <CardHeader>
-            <CardTitle className="font-display flex items-center gap-2">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-display flex items-center gap-2 text-lg sm:text-xl">
               <Palette className="w-5 h-5 text-primary" />
               Cores Personalizadas
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="primary_color">Cor Primária</Label>
+                <Label htmlFor="primary_color" className="text-sm">Cor Primária</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
                     id="primary_color"
                     value={settings.primary_color}
                     onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
-                    className="w-10 h-10 rounded cursor-pointer border-0"
+                    className="w-10 h-10 rounded cursor-pointer border-0 flex-shrink-0"
                   />
                   <Input
                     value={settings.primary_color}
                     onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
-                    className="bg-input border-border flex-1"
+                    className="bg-input border-border flex-1 text-sm"
                     placeholder="#D4AF37"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="secondary_color">Cor Secundária</Label>
+                <Label htmlFor="secondary_color" className="text-sm">Cor Secundária</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
                     id="secondary_color"
                     value={settings.secondary_color}
                     onChange={(e) => setSettings({ ...settings, secondary_color: e.target.value })}
-                    className="w-10 h-10 rounded cursor-pointer border-0"
+                    className="w-10 h-10 rounded cursor-pointer border-0 flex-shrink-0"
                   />
                   <Input
                     value={settings.secondary_color}
                     onChange={(e) => setSettings({ ...settings, secondary_color: e.target.value })}
-                    className="bg-input border-border flex-1"
+                    className="bg-input border-border flex-1 text-sm"
                     placeholder="#1a1a2e"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="background_color">Cor de Fundo</Label>
+                <Label htmlFor="background_color" className="text-sm">Cor de Fundo</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
                     id="background_color"
                     value={settings.background_color}
                     onChange={(e) => setSettings({ ...settings, background_color: e.target.value })}
-                    className="w-10 h-10 rounded cursor-pointer border-0"
+                    className="w-10 h-10 rounded cursor-pointer border-0 flex-shrink-0"
                   />
                   <Input
                     value={settings.background_color}
                     onChange={(e) => setSettings({ ...settings, background_color: e.target.value })}
-                    className="bg-input border-border flex-1"
+                    className="bg-input border-border flex-1 text-sm"
                     placeholder="#0f0f1a"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="text_color">Cor do Texto</Label>
+                <Label htmlFor="text_color" className="text-sm">Cor do Texto</Label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
                     id="text_color"
                     value={settings.text_color}
                     onChange={(e) => setSettings({ ...settings, text_color: e.target.value })}
-                    className="w-10 h-10 rounded cursor-pointer border-0"
+                    className="w-10 h-10 rounded cursor-pointer border-0 flex-shrink-0"
                   />
                   <Input
                     value={settings.text_color}
                     onChange={(e) => setSettings({ ...settings, text_color: e.target.value })}
-                    className="bg-input border-border flex-1"
+                    className="bg-input border-border flex-1 text-sm"
                     placeholder="#ffffff"
                   />
                 </div>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Estas cores serão aplicadas na página de agendamento dos seus clientes.
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Fixed Save Button for Mobile */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur border-t border-border sm:hidden pb-safe">
+        <Button 
+          variant="gold" 
+          onClick={handleSave} 
+          disabled={isSaving}
+          className="w-full"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+        </Button>
       </div>
     </div>
   );
