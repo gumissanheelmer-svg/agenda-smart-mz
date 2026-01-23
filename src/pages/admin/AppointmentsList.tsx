@@ -10,6 +10,7 @@ import { Calendar, Search, MessageCircle, Check, X, Filter, Play } from 'lucide-
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useAdminBarbershop } from '@/hooks/useAdminBarbershop';
+import { getBusinessToClientMessage, generateWhatsAppLink, BusinessType } from '@/lib/whatsappTemplates';
 
 interface AppointmentWithDetails {
   id: string;
@@ -143,19 +144,19 @@ export default function AppointmentsList() {
   };
 
   const getWhatsAppLink = (apt: AppointmentWithDetails) => {
-    const formattedDate = format(new Date(apt.appointment_date), 'dd/MM/yyyy');
-    const message = encodeURIComponent(
-      `Olá ${apt.client_name}!\n\n` +
-      `Confirmamos seu agendamento:\n\n` +
-      `Serviço: ${apt.service?.name}\n` +
-      `${professionalLabel}: ${apt.barber?.name}\n` +
-      `Data: ${formattedDate}\n` +
-      `Hora: ${apt.appointment_time}\n` +
-      `Valor: ${apt.service?.price?.toFixed(0) || 0} MZN\n\n` +
-      `Aguardamos você! ✨`
+    const message = getBusinessToClientMessage(
+      {
+        clientName: apt.client_name,
+        professionalName: apt.barber?.name || 'N/A',
+        serviceName: apt.service?.name || 'N/A',
+        appointmentDate: apt.appointment_date,
+        appointmentTime: apt.appointment_time,
+        price: apt.service?.price || 0,
+      },
+      businessType as BusinessType,
+      professionalLabel
     );
-    const cleanNumber = apt.client_phone.replace(/\D/g, '');
-    return `https://wa.me/${cleanNumber}?text=${message}`;
+    return generateWhatsAppLink(apt.client_phone, message);
   };
 
   const filteredAppointments = appointments.filter((apt) => {
