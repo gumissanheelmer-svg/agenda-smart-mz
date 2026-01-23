@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useBarbershop } from '@/hooks/useBarbershop';
 import { useBusinessType } from '@/hooks/useBusinessType';
 import { ServiceGallery } from '@/components/ServiceGallery';
+import { getClientToBusinessMessage, generateWhatsAppLink, BusinessType } from '@/lib/whatsappTemplates';
 
 interface BookingFormProps {
   onBack: () => void;
@@ -391,22 +392,21 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
     const service = services.find(s => s.id === createdAppointment.service_id);
     const serviceName = service?.name || 'N/A';
     const servicePrice = service?.price || 0;
-    const formattedDate = format(new Date(createdAppointment.appointment_date), 'dd/MM/yyyy');
-    const barbershopName = barbershop?.name || 'Estabelecimento';
 
-    const message = encodeURIComponent(
-      `Olá! Fiz um agendamento na ${barbershopName}\n\n` +
-      `👤 Cliente: ${createdAppointment.client_name}\n` +
-      `👩‍💼 ${professionalLabel}: ${professionalName}\n` +
-      `💇‍♀️ Serviço: ${serviceName}\n` +
-      `📅 Data: ${formattedDate}\n` +
-      `⏰ Hora: ${createdAppointment.appointment_time}\n` +
-      `💰 Valor: ${servicePrice.toFixed(0)} MZN\n\n` +
-      `Aguardo confirmação! 🙏`
+    const message = getClientToBusinessMessage(
+      {
+        clientName: createdAppointment.client_name,
+        professionalName,
+        serviceName,
+        appointmentDate: createdAppointment.appointment_date,
+        appointmentTime: createdAppointment.appointment_time,
+        price: servicePrice,
+        businessName: barbershop?.name,
+      },
+      businessType as BusinessType
     );
 
-    const cleanNumber = whatsappNumber.replace(/\D/g, '');
-    return `https://wa.me/${cleanNumber}?text=${message}`;
+    return generateWhatsAppLink(whatsappNumber, message);
   };
 
   if (isSuccess && createdAppointment) {

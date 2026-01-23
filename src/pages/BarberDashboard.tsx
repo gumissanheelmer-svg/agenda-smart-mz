@@ -25,6 +25,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { format, addDays } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { pt } from 'date-fns/locale';
+import { getProfessionalToClientMessage, generateWhatsAppLink, BusinessType } from '@/lib/whatsappTemplates';
 
 type DateFilter = 'today' | 'week' | 'all';
 
@@ -52,6 +53,7 @@ export default function BarberDashboard() {
   const [isMarkingAttendance, setIsMarkingAttendance] = useState(false);
   const [hasAppAccess, setHasAppAccess] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  const [businessType, setBusinessType] = useState<BusinessType>('barbearia');
 
   useEffect(() => {
     if (!isLoading && (!user || !isApprovedBarber)) {
@@ -64,6 +66,7 @@ export default function BarberDashboard() {
       fetchAppointments();
       fetchAttendanceStatus();
       checkAppAccess();
+      fetchBusinessType();
     }
   }, [barberAccount, dateFilter]);
 
@@ -136,6 +139,20 @@ export default function BarberDashboard() {
     setHasAppAccess(data?.has_app_access ?? true);
   };
 
+  const fetchBusinessType = async () => {
+    if (!barberAccount?.barbershop_id) return;
+    
+    const { data } = await supabase
+      .from('barbershops')
+      .select('business_type')
+      .eq('id', barberAccount.barbershop_id)
+      .maybeSingle();
+    
+    if (data?.business_type) {
+      setBusinessType(data.business_type as BusinessType);
+    }
+  };
+
   const markAttendance = async (status: 'present' | 'absent') => {
     if (!barberAccount?.barber_id || !barberAccount?.barbershop_id || !hasAppAccess) return;
     
@@ -175,9 +192,8 @@ export default function BarberDashboard() {
   };
 
   const openWhatsApp = (phone: string, clientName: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const message = encodeURIComponent(`Olá ${clientName}! Aqui é do seu estabelecimento de beleza.`);
-    window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
+    const message = getProfessionalToClientMessage(clientName, businessType as BusinessType);
+    window.open(generateWhatsAppLink(phone, message), '_blank');
   };
 
   const updateAppointmentStatus = async (appointmentId: string, newStatus: string) => {
