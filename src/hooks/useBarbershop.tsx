@@ -16,6 +16,9 @@ export interface Barbershop {
   business_type: 'barbearia' | 'salao' | 'salao_barbearia';
   background_image_url: string | null;
   background_overlay_level: 'low' | 'medium' | 'high';
+  mpesa_number: string | null;
+  emola_number: string | null;
+  payment_methods_enabled: string[];
 }
 
 interface BarbershopContextType {
@@ -62,6 +65,9 @@ export function BarbershopProvider({ children }: { children: ReactNode }) {
         business_type: barbershopData.business_type || 'barbearia',
         background_image_url: barbershopData.background_image_url || null,
         background_overlay_level: barbershopData.background_overlay_level || 'medium',
+        mpesa_number: barbershopData.mpesa_number || null,
+        emola_number: barbershopData.emola_number || null,
+        payment_methods_enabled: barbershopData.payment_methods_enabled || [],
       } as Barbershop);
       setIsLoading(false);
       return true;

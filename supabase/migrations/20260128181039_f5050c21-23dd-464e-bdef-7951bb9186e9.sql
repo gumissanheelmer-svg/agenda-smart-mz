@@ -1,0 +1,47 @@
+-- Drop the function first
+DROP FUNCTION IF EXISTS public.get_public_barbershop(text);
+
+-- Recreate with new signature
+CREATE FUNCTION public.get_public_barbershop(p_slug text)
+RETURNS TABLE(
+  id uuid,
+  slug text,
+  name text,
+  logo_url text,
+  primary_color text,
+  secondary_color text,
+  background_color text,
+  text_color text,
+  opening_time text,
+  closing_time text,
+  business_type text,
+  background_image_url text,
+  background_overlay_level text,
+  mpesa_number text,
+  emola_number text,
+  payment_methods_enabled text[]
+)
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT 
+    b.id,
+    b.slug,
+    b.name,
+    b.logo_url,
+    b.primary_color,
+    b.secondary_color,
+    b.background_color,
+    b.text_color,
+    b.opening_time::text,
+    b.closing_time::text,
+    b.business_type,
+    b.background_image_url,
+    b.background_overlay_level,
+    b.mpesa_number,
+    b.emola_number,
+    b.payment_methods_enabled
+  FROM barbershops b
+  WHERE b.slug = p_slug AND b.active = true AND b.approval_status = 'approved';
+$$;

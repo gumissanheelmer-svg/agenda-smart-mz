@@ -14,7 +14,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useBarbershop } from '@/hooks/useBarbershop';
 import { useBusinessType } from '@/hooks/useBusinessType';
 import { ServiceGallery } from '@/components/ServiceGallery';
+import { PaymentStep } from '@/components/booking/PaymentStep';
 import { getClientToBusinessMessage, generateWhatsAppLink, BusinessType } from '@/lib/whatsappTemplates';
+import { PaymentMethod } from '@/lib/paymentCodeExtractor';
 
 interface BookingFormProps {
   onBack: () => void;
@@ -512,17 +514,23 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
           ← Voltar
         </Button>
 
-        {/* Progress indicator */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          {[1, 2, 3].map((s) => (
-            <div
-              key={s}
-              className={`h-2 rounded-full transition-all duration-300 ${
-                s === step ? 'w-8 bg-primary' : s < step ? 'w-8 bg-primary/50' : 'w-8 bg-muted'
-              }`}
-            />
-          ))}
-        </div>
+        {/* Progress indicator - show 4 steps if payment is enabled */}
+        {(() => {
+          const hasPayment = (barbershop?.payment_methods_enabled?.length ?? 0) > 0;
+          const totalSteps = hasPayment ? 4 : 3;
+          return (
+            <div className="flex items-center justify-center gap-2 mb-8">
+              {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
+                <div
+                  key={s}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    s === step ? 'w-8 bg-primary' : s < step ? 'w-8 bg-primary/50' : 'w-8 bg-muted'
+                  }`}
+                />
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Error message */}
         {bookingError && (
@@ -754,14 +762,45 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
                 <Button
                   variant="gold"
                   className="flex-1"
-                  onClick={handleSubmit}
+                  onClick={() => {
+                    const hasPayment = (barbershop?.payment_methods_enabled?.length ?? 0) > 0;
+                    if (hasPayment) {
+                      // Go to payment step
+                      setStep(4);
+                    } else {
+                      // Submit directly
+                      handleSubmit();
+                    }
+                  }}
                   disabled={!formData.appointmentDate || !formData.appointmentTime || isLoading}
                 >
-                  {isLoading ? 'Agendando...' : 'Confirmar'}
+                  {isLoading ? 'Agendando...' : (barbershop?.payment_methods_enabled?.length ?? 0) > 0 ? 'Continuar' : 'Confirmar'}
                 </Button>
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Step 4: Payment (optional) */}
+        {step === 4 && (
+          <PaymentStep
+            paymentMethods={(barbershop?.payment_methods_enabled || []).filter(
+              (m): m is PaymentMethod => m === 'mpesa' || m === 'emola'
+            )}
+            mpesaNumber={barbershop?.mpesa_number || null}
+            emolaNumber={barbershop?.emola_number || null}
+            whatsappNumber={whatsappNumber}
+            appointmentDate={formData.appointmentDate!}
+            appointmentTime={formData.appointmentTime}
+            serviceName={services.find(s => s.id === formData.serviceId)?.name || ''}
+            servicePrice={services.find(s => s.id === formData.serviceId)?.price || 0}
+            professionalName={professionals.find(p => p.id === formData.barberId)?.name || ''}
+            onBack={() => setStep(3)}
+            onComplete={() => {
+              // After payment confirmation via WhatsApp, submit the appointment
+              handleSubmit();
+            }}
+          />
         )}
       </div>
     </div>

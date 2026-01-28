@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
-import { Settings as SettingsIcon, Save, MessageCircle, Palette, Image, Upload, Trash2, ImageIcon } from 'lucide-react';
+import { Settings as SettingsIcon, Save, MessageCircle, Palette, Image, Upload, Trash2, ImageIcon, CreditCard, Smartphone } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface BarbershopSettings {
   id: string;
@@ -24,6 +25,9 @@ interface BarbershopSettings {
   business_type: string;
   background_image_url: string | null;
   background_overlay_level: 'low' | 'medium' | 'high';
+  mpesa_number: string | null;
+  emola_number: string | null;
+  payment_methods_enabled: string[];
 }
 
 const getBusinessLabels = (type: string) => {
@@ -124,6 +128,9 @@ export default function SettingsPage() {
         closing_time: settings.closing_time,
         background_image_url: settings.background_image_url,
         background_overlay_level: settings.background_overlay_level,
+        mpesa_number: settings.mpesa_number,
+        emola_number: settings.emola_number,
+        payment_methods_enabled: settings.payment_methods_enabled,
       })
       .eq('id', settings.id);
 
@@ -608,6 +615,99 @@ export default function SettingsPage() {
                 Este número será usado para receber confirmações de agendamento.
               </p>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Payment Methods */}
+        <Card className="border-border/50 bg-card/80">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-display flex items-center gap-2 text-lg sm:text-xl">
+              <CreditCard className="w-5 h-5 text-primary" />
+              Métodos de Pagamento
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              Configure os métodos de pagamento disponíveis para seus clientes confirmarem o pagamento do agendamento.
+            </p>
+
+            {/* M-Pesa */}
+            <div className="space-y-3 p-4 rounded-lg border border-border/50 bg-secondary/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Smartphone className="w-5 h-5 text-red-500" />
+                  <div>
+                    <p className="font-medium">M-Pesa</p>
+                    <p className="text-xs text-muted-foreground">Vodacom Moçambique</p>
+                  </div>
+                </div>
+                <Checkbox
+                  id="mpesa_enabled"
+                  checked={settings.payment_methods_enabled?.includes('mpesa') || false}
+                  onCheckedChange={(checked) => {
+                    const methods = settings.payment_methods_enabled || [];
+                    if (checked) {
+                      setSettings({ ...settings, payment_methods_enabled: [...methods, 'mpesa'] });
+                    } else {
+                      setSettings({ ...settings, payment_methods_enabled: methods.filter(m => m !== 'mpesa') });
+                    }
+                  }}
+                />
+              </div>
+              {settings.payment_methods_enabled?.includes('mpesa') && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="mpesa_number" className="text-sm">Número M-Pesa para receber</Label>
+                  <Input
+                    id="mpesa_number"
+                    value={settings.mpesa_number || ''}
+                    onChange={(e) => setSettings({ ...settings, mpesa_number: e.target.value })}
+                    placeholder="84 XXX XXXX"
+                    className="bg-input border-border"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* eMola */}
+            <div className="space-y-3 p-4 rounded-lg border border-border/50 bg-secondary/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Smartphone className="w-5 h-5 text-orange-500" />
+                  <div>
+                    <p className="font-medium">eMola</p>
+                    <p className="text-xs text-muted-foreground">Movitel Moçambique</p>
+                  </div>
+                </div>
+                <Checkbox
+                  id="emola_enabled"
+                  checked={settings.payment_methods_enabled?.includes('emola') || false}
+                  onCheckedChange={(checked) => {
+                    const methods = settings.payment_methods_enabled || [];
+                    if (checked) {
+                      setSettings({ ...settings, payment_methods_enabled: [...methods, 'emola'] });
+                    } else {
+                      setSettings({ ...settings, payment_methods_enabled: methods.filter(m => m !== 'emola') });
+                    }
+                  }}
+                />
+              </div>
+              {settings.payment_methods_enabled?.includes('emola') && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="emola_number" className="text-sm">Número eMola para receber</Label>
+                  <Input
+                    id="emola_number"
+                    value={settings.emola_number || ''}
+                    onChange={(e) => setSettings({ ...settings, emola_number: e.target.value })}
+                    placeholder="86 XXX XXXX"
+                    className="bg-input border-border"
+                  />
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Quando ativado, os clientes verão instruções para transferir o valor do serviço e colar a mensagem de confirmação antes de enviar no WhatsApp.
+            </p>
           </CardContent>
         </Card>
 

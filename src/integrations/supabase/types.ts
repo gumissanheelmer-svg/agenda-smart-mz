@@ -822,10 +822,13 @@ export type Database = {
           background_overlay_level: string
           business_type: string
           closing_time: string
+          emola_number: string
           id: string
           logo_url: string
+          mpesa_number: string
           name: string
           opening_time: string
+          payment_methods_enabled: string[]
           primary_color: string
           secondary_color: string
           slug: string
