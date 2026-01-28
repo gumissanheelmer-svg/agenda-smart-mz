@@ -228,11 +228,14 @@ export type Database = {
           business_type: string
           closing_time: string | null
           created_at: string
+          emola_number: string | null
           id: string
           logo_url: string | null
+          mpesa_number: string | null
           name: string
           opening_time: string | null
           owner_email: string | null
+          payment_methods_enabled: string[] | null
           primary_color: string
           secondary_color: string
           slug: string
@@ -249,11 +252,14 @@ export type Database = {
           business_type?: string
           closing_time?: string | null
           created_at?: string
+          emola_number?: string | null
           id?: string
           logo_url?: string | null
+          mpesa_number?: string | null
           name: string
           opening_time?: string | null
           owner_email?: string | null
+          payment_methods_enabled?: string[] | null
           primary_color?: string
           secondary_color?: string
           slug: string
@@ -270,11 +276,14 @@ export type Database = {
           business_type?: string
           closing_time?: string | null
           created_at?: string
+          emola_number?: string | null
           id?: string
           logo_url?: string | null
+          mpesa_number?: string | null
           name?: string
           opening_time?: string | null
           owner_email?: string | null
+          payment_methods_enabled?: string[] | null
           primary_color?: string
           secondary_color?: string
           slug?: string
