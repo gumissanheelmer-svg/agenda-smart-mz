@@ -33,6 +33,8 @@ interface PaymentStepProps {
   mpesaNumber: string | null;
   emolaNumber: string | null;
   whatsappNumber: string;
+  businessName: string;
+  clientName: string;
   appointmentDate: Date;
   appointmentTime: string;
   serviceName: string;
@@ -47,6 +49,8 @@ export function PaymentStep({
   mpesaNumber,
   emolaNumber,
   whatsappNumber,
+  businessName,
+  clientName,
   appointmentDate,
   appointmentTime,
   serviceName,
@@ -119,8 +123,10 @@ export function PaymentStep({
       setSelectedCode({
         code: value.toUpperCase().trim(),
         method: validation.method || selectedMethod || 'mpesa',
-        confidence: 'medium'
+        confidence: 'high'
       });
+    } else {
+      setSelectedCode(null);
     }
   };
 
@@ -130,23 +136,27 @@ export function PaymentStep({
     setIsManualEntry(false);
   };
 
+  // Check if we have a valid code
+  const hasValidCode = selectedCode !== null && validateManualCode(manualCode).isValid;
+
   const formattedDate = format(appointmentDate, "dd 'de' MMMM", { locale: pt });
 
   const whatsappLink = useMemo(() => {
-    if (!manualCode.trim()) return '#';
+    if (!hasValidCode) return '#';
     
     const message = generatePaymentConfirmationMessage(
-      formattedDate,
-      appointmentTime,
+      businessName,
+      clientName,
       serviceName,
       professionalName,
+      formattedDate,
+      appointmentTime,
+      servicePrice,
       manualCode.trim()
     );
     
     return generateWhatsAppLink(whatsappNumber, message);
-  }, [manualCode, formattedDate, appointmentTime, serviceName, professionalName, whatsappNumber]);
-
-  const canProceed = manualCode.trim().length >= 6;
+  }, [hasValidCode, businessName, clientName, serviceName, professionalName, formattedDate, appointmentTime, servicePrice, manualCode, whatsappNumber]);
 
   return (
     <Card className="border-border/50 bg-card/90 backdrop-blur-md shadow-xl animate-fade-in">
@@ -302,10 +312,10 @@ export function PaymentStep({
 
               {/* Mensagem quando nenhum código encontrado */}
               {confirmationMessage.trim() && extractedCodes.length === 0 && (
-                <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                  <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-                  <p className="text-sm text-yellow-600">
-                    Não foi possível detectar o código automaticamente. Digite manualmente abaixo.
+                <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                  <p className="text-sm text-destructive">
+                    Não foi possível identificar o código de pagamento. Verifique e tente novamente.
                   </p>
                 </div>
               )}
@@ -329,8 +339,8 @@ export function PaymentStep({
               {manualCode && (
                 <p className="text-xs text-muted-foreground">
                   {validateManualCode(manualCode).isValid 
-                    ? '✓ Formato válido' 
-                    : 'Digite pelo menos 6 caracteres alfanuméricos'}
+                    ? `✓ Código ${validateManualCode(manualCode).method === 'mpesa' ? 'M-Pesa' : 'eMola'} válido` 
+                    : 'Código inválido. M-Pesa: começa com DA (11 caracteres). eMola: começa com PP.'}
                 </p>
               )}
             </div>
@@ -338,16 +348,16 @@ export function PaymentStep({
             {/* Botão de confirmação via WhatsApp */}
             <div className="space-y-3 pt-2">
               <a
-                href={canProceed ? whatsappLink : '#'}
-                target={canProceed ? '_blank' : undefined}
+                href={hasValidCode ? whatsappLink : '#'}
+                target={hasValidCode ? '_blank' : undefined}
                 rel="noopener noreferrer"
                 className="block"
                 onClick={(e) => {
-                  if (!canProceed) {
+                  if (!hasValidCode) {
                     e.preventDefault();
                     toast({
-                      title: 'Código necessário',
-                      description: 'Cole a mensagem de confirmação ou digite o código da transação.',
+                      title: 'Código inválido',
+                      description: 'Não foi possível identificar o código de pagamento. Verifique e tente novamente.',
                       variant: 'destructive'
                     });
                   } else {
@@ -359,16 +369,18 @@ export function PaymentStep({
                   variant="gold"
                   size="lg"
                   className="w-full"
-                  disabled={!canProceed}
+                  disabled={!hasValidCode}
                 >
                   <MessageCircle className="w-5 h-5 mr-2" />
                   Enviar confirmação no WhatsApp
                   <ChevronRight className="w-4 h-4 ml-2" />
                 </Button>
               </a>
-              <p className="text-xs text-center text-muted-foreground">
-                Ao clicar, você será redirecionado para o WhatsApp com a mensagem pronta.
-              </p>
+              {hasValidCode && (
+                <p className="text-xs text-center text-green-600">
+                  ✓ Pagamento enviado! Clique para confirmar no WhatsApp.
+                </p>
+              )}
             </div>
           </>
         )}
