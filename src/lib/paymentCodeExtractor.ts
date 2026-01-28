@@ -12,53 +12,51 @@ export interface ExtractedCode {
 }
 
 /**
- * eMola transaction code pattern
- * Codes starting with PP followed by uppercase letters, numbers, and dots
- * Example: PP1A2.B3C4D
+ * M-Pesa transaction code pattern
+ * - Starts with "DA"
+ * - Exactly 11 characters
+ * - Only uppercase letters and numbers
  */
-const EMOLA_PATTERN = /PP[A-Z0-9.]+/g;
+const MPESA_PATTERN = /\bDA[A-Z0-9]{9}\b/g;
 
 /**
- * M-Pesa transaction code pattern
- * Exactly 11 characters, uppercase letters and numbers only
- * Example: ABC1234DE56
+ * eMola transaction code pattern
+ * - Starts with "PP"
+ * - Can contain uppercase letters, numbers, and dots
  */
-const MPESA_PATTERN = /\b[A-Z0-9]{11}\b/g;
+const EMOLA_PATTERN = /\bPP[A-Z0-9.]+\b/g;
 
 /**
  * Extract transaction codes from a message
- * Prioritizes eMola codes over M-Pesa
+ * Prioritizes exact pattern matches
  */
 export function extractTransactionCodes(message: string): ExtractedCode[] {
   const codes: ExtractedCode[] = [];
   const upperMessage = message.toUpperCase();
 
-  // First, try to find eMola codes (higher priority)
+  // First, try to find eMola codes (PP prefix)
   const emolaMatches = upperMessage.match(EMOLA_PATTERN);
   if (emolaMatches) {
     emolaMatches.forEach(code => {
-      // eMola codes with PP prefix are high confidence
       codes.push({
         code: code,
         method: 'emola',
-        confidence: code.length >= 8 ? 'high' : 'medium'
+        confidence: 'high'
       });
     });
   }
 
-  // Then, try to find M-Pesa codes
+  // Then, try to find M-Pesa codes (DA prefix, exactly 11 chars)
   const mpesaMatches = upperMessage.match(MPESA_PATTERN);
   if (mpesaMatches) {
     mpesaMatches.forEach(code => {
-      // Avoid duplicates if the code was already matched as eMola
-      const isDuplicate = codes.some(c => c.code.includes(code) || code.includes(c.code));
+      // Avoid duplicates
+      const isDuplicate = codes.some(c => c.code === code);
       if (!isDuplicate) {
-        // M-Pesa codes are high confidence if they don't look like common words
-        const isLikelyCode = !isCommonWord(code);
         codes.push({
           code: code,
           method: 'mpesa',
-          confidence: isLikelyCode ? 'high' : 'medium'
+          confidence: 'high'
         });
       }
     });
@@ -68,39 +66,18 @@ export function extractTransactionCodes(message: string): ExtractedCode[] {
 }
 
 /**
- * Check if a string is likely a common word rather than a transaction code
- */
-function isCommonWord(str: string): boolean {
-  const commonPatterns = [
-    'TRANSFERENCIA',
-    'CONFIRMACAO',
-    'SUCESSO',
-    'PAGAMENTO',
-    'TRANSACAO',
-    'RECEBIDO',
-    'ENVIADO'
-  ];
-  return commonPatterns.some(pattern => str.includes(pattern));
-}
-
-/**
  * Get the best (highest confidence) code from extracted codes
  */
 export function getBestCode(codes: ExtractedCode[]): ExtractedCode | null {
   if (codes.length === 0) return null;
   
-  // Prioritize eMola with high confidence, then M-Pesa with high confidence
-  const highConfidenceEmola = codes.find(c => c.method === 'emola' && c.confidence === 'high');
-  if (highConfidenceEmola) return highConfidenceEmola;
+  // Prioritize by confidence, then by method (eMola first for consistency)
+  const sorted = [...codes].sort((a, b) => {
+    const confidenceOrder = { high: 0, medium: 1, low: 2 };
+    return confidenceOrder[a.confidence] - confidenceOrder[b.confidence];
+  });
   
-  const highConfidenceMpesa = codes.find(c => c.method === 'mpesa' && c.confidence === 'high');
-  if (highConfidenceMpesa) return highConfidenceMpesa;
-  
-  // Fall back to any eMola, then any M-Pesa
-  const anyEmola = codes.find(c => c.method === 'emola');
-  if (anyEmola) return anyEmola;
-  
-  return codes[0];
+  return sorted[0];
 }
 
 /**
@@ -109,19 +86,14 @@ export function getBestCode(codes: ExtractedCode[]): ExtractedCode | null {
 export function validateManualCode(code: string): { isValid: boolean; method: PaymentMethod | null } {
   const upperCode = code.toUpperCase().trim();
   
-  // Check eMola pattern first
-  if (/^PP[A-Z0-9.]+$/.test(upperCode) && upperCode.length >= 6) {
-    return { isValid: true, method: 'emola' };
-  }
-  
-  // Check M-Pesa pattern
-  if (/^[A-Z0-9]{11}$/.test(upperCode)) {
+  // Check M-Pesa pattern: starts with DA, exactly 11 chars, only letters and numbers
+  if (/^DA[A-Z0-9]{9}$/.test(upperCode)) {
     return { isValid: true, method: 'mpesa' };
   }
   
-  // Allow any alphanumeric code of reasonable length for flexibility
-  if (/^[A-Z0-9.]{6,20}$/.test(upperCode)) {
-    return { isValid: true, method: null };
+  // Check eMola pattern: starts with PP, contains letters, numbers, and dots
+  if (/^PP[A-Z0-9.]+$/.test(upperCode) && upperCode.length >= 4) {
+    return { isValid: true, method: 'emola' };
   }
   
   return { isValid: false, method: null };
@@ -148,24 +120,26 @@ export function getPaymentInstructions(method: PaymentMethod, phoneNumber: strin
  * Generate WhatsApp confirmation message with payment code
  */
 export function generatePaymentConfirmationMessage(
-  appointmentDate: string,
-  appointmentTime: string,
+  businessName: string,
+  clientName: string,
   serviceName: string,
   professionalName: string,
+  appointmentDate: string,
+  appointmentTime: string,
+  servicePrice: number,
   transactionCode: string
 ): string {
-  return `Olá 👋
+  return `Olá! 👋
 
-Já efetuei o pagamento do meu agendamento.
+Fiz um agendamento na ${businessName} 💈
 
-📅 Data: ${appointmentDate}
-⏰ Hora: ${appointmentTime}
+👤 Cliente: ${clientName}
 ✂️ Serviço: ${serviceName}
 💈 Profissional: ${professionalName}
+📅 Data: ${appointmentDate}
+⏰ Hora: ${appointmentTime}
+💰 Valor: ${servicePrice.toFixed(0)} MZN
+💳 Código da transação: ${transactionCode}
 
-💳 Código da transação:
-${transactionCode}
-
-Aguardo a confirmação.
-Obrigado.`;
+Aguardo confirmação 🙏`;
 }

@@ -790,6 +790,8 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
             mpesaNumber={barbershop?.mpesa_number || null}
             emolaNumber={barbershop?.emola_number || null}
             whatsappNumber={whatsappNumber}
+            businessName={barbershop?.name || ''}
+            clientName={formData.clientName}
             appointmentDate={formData.appointmentDate!}
             appointmentTime={formData.appointmentTime}
             serviceName={services.find(s => s.id === formData.serviceId)?.name || ''}
