@@ -12,18 +12,20 @@ import {
   AlertCircle, 
   Copy, 
   MessageCircle,
-  ChevronRight
+  ChevronRight,
+  Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
-  extractTransactionCodes,
+  extractPaymentData,
   validateManualCode,
   getPaymentInstructions,
   PaymentMethod,
   ExtractedCode
 } from '@/lib/paymentCodeExtractor';
 import { getClientToBusinessMessage } from '@/lib/whatsappTemplates';
-import { openWhatsApp } from '@/lib/whatsapp';
+import { openWhatsApp, normalizeMozWhatsapp } from '@/lib/whatsapp';
+import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
@@ -33,6 +35,8 @@ interface PaymentStepProps {
   emolaNumber: string | null;
   whatsappNumber: string;
   businessName: string;
+  businessId: string;
+  appointmentId: string | null;
   clientName: string;
   appointmentDate: Date;
   appointmentTime: string;
@@ -49,6 +53,8 @@ export function PaymentStep({
   emolaNumber,
   whatsappNumber,
   businessName,
+  businessId,
+  appointmentId,
   clientName,
   appointmentDate,
   appointmentTime,
@@ -68,29 +74,41 @@ export function PaymentStep({
   const [selectedCode, setSelectedCode] = useState<ExtractedCode | null>(null);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [isPaymentConfirmed, setIsPaymentConfirmed] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [detectedAmount, setDetectedAmount] = useState<number | null>(null);
+  const [detectedPhone, setDetectedPhone] = useState<string | null>(null);
 
-  // Extract codes when message changes
+  // Extract codes, amount, and phone when message changes
   useEffect(() => {
     if (confirmationMessage.trim()) {
-      const codes = extractTransactionCodes(confirmationMessage);
+      const paymentData = extractPaymentData(confirmationMessage, selectedMethod || undefined);
+      
+      // Handle codes
+      const codes: ExtractedCode[] = [];
+      if (paymentData.code) {
+        codes.push(paymentData.code);
+      }
       setExtractedCodes(codes);
       
-      // Auto-select best code if only one found
-      if (codes.length === 1) {
-        setSelectedCode(codes[0]);
-        setManualCode(codes[0].code);
-      } else if (codes.length > 1) {
-        // Multiple codes found, let user choose
-        setSelectedCode(null);
+      // Auto-select code if found
+      if (paymentData.code) {
+        setSelectedCode(paymentData.code);
+        setManualCode(paymentData.code.code);
       } else {
-        // No code found
         setSelectedCode(null);
       }
+      
+      // Store detected amount and phone for validation
+      setDetectedAmount(paymentData.amount);
+      setDetectedPhone(paymentData.phone);
     } else {
       setExtractedCodes([]);
       setSelectedCode(null);
+      setDetectedAmount(null);
+      setDetectedPhone(null);
     }
-  }, [confirmationMessage]);
+  }, [confirmationMessage, selectedMethod]);
 
   // Update manual code when selected code changes
   useEffect(() => {
@@ -116,6 +134,7 @@ export function PaymentStep({
   const handleManualCodeChange = (value: string) => {
     setManualCode(value.toUpperCase());
     setIsManualEntry(true);
+    setValidationError(null);
     
     // Validate the manual code
     const validation = validateManualCode(value);
@@ -134,15 +153,72 @@ export function PaymentStep({
     setSelectedCode(code);
     setManualCode(code.code);
     setIsManualEntry(false);
+    setValidationError(null);
   };
 
-  const handleConfirmPayment = () => {
-    if (hasValidCode) {
+  const handleConfirmPayment = async () => {
+    if (!hasValidCode || !appointmentId || isValidating) return;
+    
+    setIsValidating(true);
+    setValidationError(null);
+
+    try {
+      // Get the expected phone for the selected payment method
+      const phoneExpected = selectedMethod 
+        ? normalizeMozWhatsapp(getPhoneForMethod(selectedMethod))
+        : null;
+
+      // Call the RPC to validate and confirm payment
+      const { data, error } = await supabase.rpc('validate_and_confirm_payment', {
+        p_appointment_id: appointmentId,
+        p_barbershop_id: businessId,
+        p_payment_method: selectedMethod || 'mpesa',
+        p_phone_expected: phoneExpected,
+        p_amount_expected: servicePrice,
+        p_confirmation_text: confirmationMessage,
+        p_transaction_code: manualCode.trim().toUpperCase(),
+        p_amount_detected: detectedAmount,
+        p_phone_detected: detectedPhone,
+        p_max_hours: 2
+      });
+
+      if (error) {
+        console.error('Payment validation error:', error);
+        setValidationError('Erro ao validar pagamento. Tente novamente.');
+        return;
+      }
+
+      const result = data as { success: boolean; error?: string; code?: string };
+
+      if (!result.success) {
+        // Show specific error based on code
+        const errorMessages: Record<string, string> = {
+          'CODE_REUSED': 'Este código de transação já foi utilizado. Use um novo pagamento.',
+          'ALREADY_CONFIRMED': 'Este agendamento já possui um pagamento confirmado.',
+          'VALIDATION_FAILED': result.error || 'Validação falhou. Verifique os dados.',
+        };
+        
+        setValidationError(errorMessages[result.code || ''] || result.error || 'Erro de validação');
+        
+        toast({
+          title: 'Pagamento não aceite',
+          description: errorMessages[result.code || ''] || result.error,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Payment accepted!
       setIsPaymentConfirmed(true);
       toast({
         title: 'Pagamento confirmado!',
         description: 'Agora envie a confirmação no WhatsApp.',
       });
+    } catch (err) {
+      console.error('Payment validation exception:', err);
+      setValidationError('Erro inesperado. Tente novamente.');
+    } finally {
+      setIsValidating(false);
     }
   };
 
@@ -327,43 +403,30 @@ export function PaymentStep({
                     id="confirmation"
                     placeholder="Cole a mensagem SMS/USSD que recebeu após a transferência..."
                     value={confirmationMessage}
-                    onChange={(e) => setConfirmationMessage(e.target.value)}
+                    onChange={(e) => {
+                      setConfirmationMessage(e.target.value);
+                      setValidationError(null);
+                    }}
                     className="min-h-[100px] bg-input border-border"
                   />
 
                   {/* Códigos extraídos */}
                   {extractedCodes.length > 0 && (
                     <div className="space-y-2">
-                      {extractedCodes.length === 1 ? (
-                        <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                          <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-green-600">Código detectado!</p>
-                            <p className="text-xs text-muted-foreground">
-                              {extractedCodes[0].method === 'emola' ? 'eMola' : 'M-Pesa'}: {extractedCodes[0].code}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-sm text-muted-foreground">
-                            <AlertCircle className="w-4 h-4 inline mr-1" />
-                            Múltiplos códigos detectados. Escolha o correto:
+                      <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                        <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-green-600">Código detectado!</p>
+                          <p className="text-xs text-muted-foreground">
+                            {extractedCodes[0].method === 'emola' ? 'eMola' : 'M-Pesa'}: {extractedCodes[0].code}
                           </p>
-                          <div className="flex flex-wrap gap-2">
-                            {extractedCodes.map((code, idx) => (
-                              <Badge
-                                key={idx}
-                                variant={selectedCode?.code === code.code ? 'default' : 'outline'}
-                                className="cursor-pointer py-2 px-3"
-                                onClick={() => handleSelectExtractedCode(code)}
-                              >
-                                {code.method === 'emola' ? 'eMola' : 'M-Pesa'}: {code.code}
-                              </Badge>
-                            ))}
-                          </div>
+                          {detectedAmount && (
+                            <p className="text-xs text-muted-foreground">
+                              Valor detectado: {detectedAmount.toFixed(2)} MZN
+                            </p>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
 
@@ -372,7 +435,7 @@ export function PaymentStep({
                     <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
                       <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
                       <p className="text-sm text-destructive">
-                        Não foi possível identificar o código de pagamento. Verifique e tente novamente.
+                        Não foi possível identificar o código de pagamento. Cole a mensagem completa.
                       </p>
                     </div>
                   )}
@@ -388,7 +451,7 @@ export function PaymentStep({
                   </Label>
                   <Input
                     id="manualCode"
-                    placeholder="Ex: DAT2IVYA7R0 ou PP1A2.B3C"
+                    placeholder="Ex: DAT2IVYA7R0 ou PP260116.2026.W22156"
                     value={manualCode}
                     onChange={(e) => handleManualCodeChange(e.target.value)}
                     className="bg-input border-border font-mono uppercase"
@@ -397,10 +460,18 @@ export function PaymentStep({
                     <p className="text-xs text-muted-foreground">
                       {validateManualCode(manualCode).isValid 
                         ? `✓ Código ${validateManualCode(manualCode).method === 'mpesa' ? 'M-Pesa' : 'eMola'} válido` 
-                        : 'Código inválido. M-Pesa: 10–12 caracteres (letras/números). eMola: começa com PP ou CI.'}
+                        : 'Código inválido. M-Pesa: 10–12 caracteres. eMola: PP ou CI + data/código.'}
                     </p>
                   )}
                 </div>
+
+                {/* Erro de validação anti-fraude */}
+                {validationError && (
+                  <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                    <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                    <p className="text-sm text-destructive">{validationError}</p>
+                  </div>
+                )}
 
                 {/* Botão de confirmar pagamento */}
                 <div className="space-y-3 pt-2">
@@ -408,15 +479,29 @@ export function PaymentStep({
                     variant="gold"
                     size="lg"
                     className="w-full"
-                    disabled={!hasValidCode}
+                    disabled={!hasValidCode || isValidating || !appointmentId}
                     onClick={handleConfirmPayment}
                   >
-                    <CheckCircle2 className="w-5 h-5 mr-2" />
-                    Confirmar pagamento
+                    {isValidating ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Validando...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-5 h-5 mr-2" />
+                        Confirmar pagamento
+                      </>
+                    )}
                   </Button>
                   {!hasValidCode && (
                     <p className="text-xs text-center text-muted-foreground">
                       Cole a mensagem de confirmação para validar o código de pagamento.
+                    </p>
+                  )}
+                  {!appointmentId && (
+                    <p className="text-xs text-center text-destructive">
+                      Erro: Agendamento não criado. Volte e tente novamente.
                     </p>
                   )}
                 </div>
@@ -425,8 +510,8 @@ export function PaymentStep({
           </>
         )}
 
-        {/* Botão voltar - não mostrar se pagamento confirmado */}
-        {!isPaymentConfirmed && (
+        {/* Botão voltar - não mostrar se pagamento confirmado ou validando */}
+        {!isPaymentConfirmed && !isValidating && (
           <Button variant="outline" className="w-full" onClick={onBack}>
             Voltar
           </Button>
@@ -435,4 +520,3 @@ export function PaymentStep({
     </Card>
   );
 }
-

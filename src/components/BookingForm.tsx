@@ -712,11 +712,58 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
                 <Button
                   variant="gold"
                   className="flex-1"
-                  onClick={() => {
+                  onClick={async () => {
                     const hasPayment = barbershop?.payment_required || false;
                     if (hasPayment) {
-                      // Go to payment step
-                      setStep(4);
+                      // If payment required, create appointment first then go to payment
+                      setIsLoading(true);
+                      setBookingError('');
+
+                      try {
+                        const { data, error } = await supabase.rpc('create_public_appointment', {
+                          p_barbershop_id: currentBarbershopId,
+                          p_barber_id: formData.barberId,
+                          p_service_id: formData.serviceId,
+                          p_client_name: formData.clientName.trim(),
+                          p_client_phone: formData.clientPhone.trim(),
+                          p_appointment_date: format(formData.appointmentDate!, 'yyyy-MM-dd'),
+                          p_appointment_time: formData.appointmentTime,
+                          p_notes: null
+                        });
+
+                        if (error) {
+                          console.error('Booking RPC error:', error);
+                          setBookingError('Não foi possível realizar o agendamento. Tente novamente.');
+                          setIsLoading(false);
+                          return;
+                        }
+
+                        const result = data as { success: boolean; appointment_id?: string; error?: string };
+
+                        if (!result.success) {
+                          setBookingError(result.error || 'Não foi possível realizar o agendamento.');
+                          setIsLoading(false);
+                          return;
+                        }
+
+                        // Store appointment for payment validation
+                        setCreatedAppointment({
+                          id: result.appointment_id,
+                          client_name: formData.clientName.trim(),
+                          client_phone: formData.clientPhone.trim(),
+                          barber_id: formData.barberId,
+                          service_id: formData.serviceId,
+                          appointment_date: format(formData.appointmentDate!, 'yyyy-MM-dd'),
+                          appointment_time: formData.appointmentTime,
+                        });
+
+                        setIsLoading(false);
+                        setStep(4);
+                      } catch (err) {
+                        console.error('Error creating appointment:', err);
+                        setBookingError('Erro inesperado. Tente novamente.');
+                        setIsLoading(false);
+                      }
                     } else {
                       // Submit directly
                       handleSubmit();
@@ -732,7 +779,7 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
         )}
 
         {/* Step 4: Payment (optional) */}
-        {step === 4 && (
+        {step === 4 && createdAppointment && (
           <PaymentStep
             paymentMethods={(barbershop?.payment_methods_enabled || []).filter(
               (m): m is PaymentMethod => m === 'mpesa' || m === 'emola'
@@ -741,6 +788,8 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
             emolaNumber={barbershop?.emola_number || null}
             whatsappNumber={barbershop?.whatsapp_number || ''}
             businessName={barbershop?.name || ''}
+            businessId={currentBarbershopId || ''}
+            appointmentId={createdAppointment?.id || null}
             clientName={formData.clientName}
             appointmentDate={formData.appointmentDate!}
             appointmentTime={formData.appointmentTime}
@@ -749,8 +798,12 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
             professionalName={professionals.find(p => p.id === formData.barberId)?.name || ''}
             onBack={() => setStep(3)}
             onComplete={() => {
-              // After payment confirmation via WhatsApp, submit the appointment
-              handleSubmit();
+              // Payment confirmed via WhatsApp, show success screen
+              setIsSuccess(true);
+              toast({
+                title: 'Agendamento confirmado!',
+                description: 'Seu agendamento foi confirmado com sucesso.',
+              });
             }}
           />
         )}
