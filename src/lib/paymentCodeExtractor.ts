@@ -115,34 +115,3 @@ export function getPaymentInstructions(method: PaymentMethod, phoneNumber: strin
   
   return '';
 }
-
-/**
- * Generate WhatsApp confirmation message with optional payment code
- */
-export function generatePaymentConfirmationMessage(
-  businessName: string,
-  clientName: string,
-  serviceName: string,
-  professionalName: string,
-  appointmentDate: string,
-  appointmentTime: string,
-  servicePrice: number,
-  transactionCode?: string
-): string {
-  const transactionLine = transactionCode?.trim() 
-    ? `\n💳 Código da transação: ${transactionCode.trim()}` 
-    : '';
-
-  return `Olá! 👋
-
-Fiz um agendamento na ${businessName} 💈
-
-👤 Cliente: ${clientName}
-✂️ Serviço: ${serviceName}
-💈 Profissional: ${professionalName}
-📅 Data: ${appointmentDate}
-⏰ Hora: ${appointmentTime}
-💰 Valor: ${servicePrice.toFixed(0)} MZN${transactionLine}
-
-Aguardo confirmação 🙏`;
-}

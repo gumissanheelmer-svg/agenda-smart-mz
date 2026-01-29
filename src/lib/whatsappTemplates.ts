@@ -10,58 +10,32 @@ interface AppointmentDetails {
   appointmentTime: string;
   price: number;
   businessName?: string;
+  transactionCode?: string;
 }
 
 /**
  * Gera mensagem de confirmação do CLIENTE para o ESTABELECIMENTO (após agendar)
+ * Formato unificado para todos os tipos de negócio
  */
-export function getClientToBusinessMessage(
-  details: AppointmentDetails,
-  businessType: BusinessType
-): string {
+export function getClientToBusinessMessage(details: AppointmentDetails): string {
   const formattedDate = format(new Date(details.appointmentDate), 'dd/MM/yyyy');
-  const priceFormatted = `${details.price.toFixed(0)} MZN`;
   const businessName = details.businessName || 'Estabelecimento';
+  const transactionLine = details.transactionCode?.trim() 
+    ? `\n💳 Código da transação: ${details.transactionCode.trim()}` 
+    : '';
 
-  if (businessType === 'salao') {
-    // Template feminino para salão de beleza
-    return (
-      `Olá! Fiz um agendamento no ${businessName} 💅✨\n\n` +
-      `👩 Cliente: ${details.clientName}\n` +
-      `💅 Serviço: ${details.serviceName}\n` +
-      `👩‍💼 Profissional: ${details.professionalName}\n` +
-      `📅 Data: ${formattedDate}\n` +
-      `⏰ Hora: ${details.appointmentTime}\n` +
-      `💰 Valor: ${priceFormatted}\n\n` +
-      `Aguardo confirmação! 💕`
-    );
-  }
+  return `Olá! 👋
 
-  if (businessType === 'salao_barbearia') {
-    // Template híbrido (neutro)
-    return (
-      `Olá! Fiz um agendamento no ${businessName} ✨\n\n` +
-      `👤 Cliente: ${details.clientName}\n` +
-      `✂️ Serviço: ${details.serviceName}\n` +
-      `👨‍💼 Profissional: ${details.professionalName}\n` +
-      `📅 Data: ${formattedDate}\n` +
-      `⏰ Hora: ${details.appointmentTime}\n` +
-      `💰 Valor: ${priceFormatted}\n\n` +
-      `Aguardo confirmação! 🙏`
-    );
-  }
+Fiz um agendamento na ${businessName} 💈
 
-  // Template padrão para barbearia (masculino)
-  return (
-    `Olá! Fiz um agendamento na ${businessName} 💈\n\n` +
-    `👤 Cliente: ${details.clientName}\n` +
-    `💇‍♂️ Serviço: ${details.serviceName}\n` +
-    `✂️ Barbeiro: ${details.professionalName}\n` +
-    `📅 Data: ${formattedDate}\n` +
-    `⏰ Hora: ${details.appointmentTime}\n` +
-    `💰 Valor: ${priceFormatted}\n\n` +
-    `Aguardo confirmação! 🙏`
-  );
+👤 Cliente: ${details.clientName}
+✂️ Serviço: ${details.serviceName}
+💈 Profissional: ${details.professionalName}
+📅 Data: ${formattedDate}
+⏰ Hora: ${details.appointmentTime}
+💰 Valor: ${details.price.toFixed(0)} MZN${transactionLine}
+
+Aguardo confirmação 🙏`;
 }
 
 /**

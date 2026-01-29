@@ -15,7 +15,7 @@ import { useBarbershop } from '@/hooks/useBarbershop';
 import { useBusinessType } from '@/hooks/useBusinessType';
 import { ServiceGallery } from '@/components/ServiceGallery';
 import { PaymentStep } from '@/components/booking/PaymentStep';
-import { getClientToBusinessMessage, generateWhatsAppLink, BusinessType } from '@/lib/whatsappTemplates';
+import { getClientToBusinessMessage, generateWhatsAppLink } from '@/lib/whatsappTemplates';
 import { PaymentMethod } from '@/lib/paymentCodeExtractor';
 
 interface BookingFormProps {
@@ -395,18 +395,15 @@ export function BookingForm({ onBack, barbershopId, backgroundImageUrl, backgrou
     const serviceName = service?.name || 'N/A';
     const servicePrice = service?.price || 0;
 
-    const message = getClientToBusinessMessage(
-      {
-        clientName: createdAppointment.client_name,
-        professionalName,
-        serviceName,
-        appointmentDate: createdAppointment.appointment_date,
-        appointmentTime: createdAppointment.appointment_time,
-        price: servicePrice,
-        businessName: barbershop?.name,
-      },
-      businessType as BusinessType
-    );
+    const message = getClientToBusinessMessage({
+      clientName: createdAppointment.client_name,
+      professionalName,
+      serviceName,
+      appointmentDate: createdAppointment.appointment_date,
+      appointmentTime: createdAppointment.appointment_time,
+      price: servicePrice,
+      businessName: barbershop?.name,
+    });
 
     return generateWhatsAppLink(whatsappNumber, message);
   };

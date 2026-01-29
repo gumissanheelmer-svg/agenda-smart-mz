@@ -17,14 +17,12 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import {
   extractTransactionCodes,
-  getBestCode,
   validateManualCode,
   getPaymentInstructions,
-  generatePaymentConfirmationMessage,
   PaymentMethod,
   ExtractedCode
 } from '@/lib/paymentCodeExtractor';
-import { generateWhatsAppLink } from '@/lib/whatsappTemplates';
+import { getClientToBusinessMessage, generateWhatsAppLink } from '@/lib/whatsappTemplates';
 import { format } from 'date-fns';
 import { pt } from 'date-fns/locale';
 
@@ -144,19 +142,19 @@ export function PaymentStep({
   const whatsappLink = useMemo(() => {
     if (!hasValidCode) return '#';
     
-    const message = generatePaymentConfirmationMessage(
-      businessName,
+    const message = getClientToBusinessMessage({
       clientName,
-      serviceName,
       professionalName,
-      formattedDate,
+      serviceName,
+      appointmentDate: format(appointmentDate, 'yyyy-MM-dd'),
       appointmentTime,
-      servicePrice,
-      manualCode.trim()
-    );
+      price: servicePrice,
+      businessName,
+      transactionCode: manualCode.trim(),
+    });
     
     return generateWhatsAppLink(whatsappNumber, message);
-  }, [hasValidCode, businessName, clientName, serviceName, professionalName, formattedDate, appointmentTime, servicePrice, manualCode, whatsappNumber]);
+  }, [hasValidCode, businessName, clientName, serviceName, professionalName, appointmentDate, appointmentTime, servicePrice, manualCode, whatsappNumber]);
 
   return (
     <Card className="border-border/50 bg-card/90 backdrop-blur-md shadow-xl animate-fade-in">
