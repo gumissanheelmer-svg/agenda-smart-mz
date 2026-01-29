@@ -117,7 +117,7 @@ export function getPaymentInstructions(method: PaymentMethod, phoneNumber: strin
 }
 
 /**
- * Generate WhatsApp confirmation message with payment code
+ * Generate WhatsApp confirmation message with optional payment code
  */
 export function generatePaymentConfirmationMessage(
   businessName: string,
@@ -127,8 +127,12 @@ export function generatePaymentConfirmationMessage(
   appointmentDate: string,
   appointmentTime: string,
   servicePrice: number,
-  transactionCode: string
+  transactionCode?: string
 ): string {
+  const transactionLine = transactionCode?.trim() 
+    ? `\n💳 Código da transação: ${transactionCode.trim()}` 
+    : '';
+
   return `Olá! 👋
 
 Fiz um agendamento na ${businessName} 💈
@@ -138,8 +142,7 @@ Fiz um agendamento na ${businessName} 💈
 💈 Profissional: ${professionalName}
 📅 Data: ${appointmentDate}
 ⏰ Hora: ${appointmentTime}
-💰 Valor: ${servicePrice.toFixed(0)} MZN
-💳 Código da transação: ${transactionCode}
+💰 Valor: ${servicePrice.toFixed(0)} MZN${transactionLine}
 
 Aguardo confirmação 🙏`;
 }
