@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { 
   CreditCard, 
   Smartphone, 
@@ -13,15 +12,19 @@ import {
   Copy, 
   MessageCircle,
   ChevronRight,
-  Loader2
+  Loader2,
+  Info
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   extractPaymentData,
+  validatePaymentData,
   validateManualCode,
   getPaymentInstructions,
+  normalizePhone,
   PaymentMethod,
-  ExtractedCode
+  ExtractedPaymentData,
+  ValidationResult
 } from '@/lib/paymentCodeExtractor';
 import { getClientToBusinessMessage } from '@/lib/whatsappTemplates';
 import { openWhatsApp, normalizeMozWhatsapp } from '@/lib/whatsapp';
@@ -70,58 +73,63 @@ export function PaymentStep({
   );
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [manualCode, setManualCode] = useState('');
-  const [extractedCodes, setExtractedCodes] = useState<ExtractedCode[]>([]);
-  const [selectedCode, setSelectedCode] = useState<ExtractedCode | null>(null);
+  const [extractedData, setExtractedData] = useState<ExtractedPaymentData | null>(null);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [isPaymentConfirmed, setIsPaymentConfirmed] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [detectedAmount, setDetectedAmount] = useState<number | null>(null);
-  const [detectedPhone, setDetectedPhone] = useState<string | null>(null);
 
-  // Extract codes, amount, and phone when message changes
-  useEffect(() => {
-    if (confirmationMessage.trim()) {
-      const paymentData = extractPaymentData(confirmationMessage, selectedMethod || undefined);
-      
-      // Handle codes
-      const codes: ExtractedCode[] = [];
-      if (paymentData.code) {
-        codes.push(paymentData.code);
-      }
-      setExtractedCodes(codes);
-      
-      // Auto-select code if found
-      if (paymentData.code) {
-        setSelectedCode(paymentData.code);
-        setManualCode(paymentData.code.code);
-      } else {
-        setSelectedCode(null);
-      }
-      
-      // Store detected amount and phone for validation
-      setDetectedAmount(paymentData.amount);
-      setDetectedPhone(paymentData.phone);
-    } else {
-      setExtractedCodes([]);
-      setSelectedCode(null);
-      setDetectedAmount(null);
-      setDetectedPhone(null);
-    }
-  }, [confirmationMessage, selectedMethod]);
-
-  // Update manual code when selected code changes
-  useEffect(() => {
-    if (selectedCode && !isManualEntry) {
-      setManualCode(selectedCode.code);
-    }
-  }, [selectedCode, isManualEntry]);
-
+  // Get the expected phone for the selected payment method
   const getPhoneForMethod = (method: PaymentMethod): string => {
     if (method === 'mpesa' && mpesaNumber) return mpesaNumber;
     if (method === 'emola' && emolaNumber) return emolaNumber;
     return '';
   };
+
+  const expectedRecipientPhone = selectedMethod ? normalizePhone(getPhoneForMethod(selectedMethod)) : '';
+
+  // Extract and validate when message changes
+  useEffect(() => {
+    if (confirmationMessage.trim()) {
+      const data = extractPaymentData(confirmationMessage, selectedMethod || undefined);
+      setExtractedData(data);
+      
+      // Auto-fill code if found
+      if (data.code && !isManualEntry) {
+        setManualCode(data.code.code);
+      }
+      
+      // Validate against expected values
+      if (expectedRecipientPhone) {
+        const validationResult = validatePaymentData(data, servicePrice, expectedRecipientPhone);
+        setValidation(validationResult);
+      }
+    } else {
+      setExtractedData(null);
+      setValidation(null);
+      if (!isManualEntry) {
+        setManualCode('');
+      }
+    }
+  }, [confirmationMessage, selectedMethod, servicePrice, expectedRecipientPhone, isManualEntry]);
+
+  // Re-validate when manual code changes
+  useEffect(() => {
+    if (isManualEntry && manualCode.trim() && extractedData) {
+      // Update validation with manual code
+      const updatedData: ExtractedPaymentData = {
+        ...extractedData,
+        code: validateManualCode(manualCode).isValid ? {
+          code: manualCode.toUpperCase().trim(),
+          method: extractedData.method || selectedMethod || 'unknown',
+          confidence: 'high'
+        } : null
+      };
+      const validationResult = validatePaymentData(updatedData, servicePrice, expectedRecipientPhone);
+      setValidation(validationResult);
+    }
+  }, [manualCode, isManualEntry, extractedData, servicePrice, expectedRecipientPhone, selectedMethod]);
 
   const handleCopyNumber = (number: string) => {
     navigator.clipboard.writeText(number.replace(/\D/g, ''));
@@ -135,50 +143,28 @@ export function PaymentStep({
     setManualCode(value.toUpperCase());
     setIsManualEntry(true);
     setValidationError(null);
-    
-    // Validate the manual code
-    const validation = validateManualCode(value);
-    if (validation.isValid && value.trim()) {
-      setSelectedCode({
-        code: value.toUpperCase().trim(),
-        method: validation.method || selectedMethod || 'mpesa',
-        confidence: 'high'
-      });
-    } else {
-      setSelectedCode(null);
-    }
-  };
-
-  const handleSelectExtractedCode = (code: ExtractedCode) => {
-    setSelectedCode(code);
-    setManualCode(code.code);
-    setIsManualEntry(false);
-    setValidationError(null);
   };
 
   const handleConfirmPayment = async () => {
-    if (!hasValidCode || !appointmentId || isValidating) return;
+    if (!validation?.isReady || !appointmentId || isValidating) return;
     
     setIsValidating(true);
     setValidationError(null);
 
     try {
-      // Get the expected phone for the selected payment method
-      const phoneExpected = selectedMethod 
-        ? normalizeMozWhatsapp(getPhoneForMethod(selectedMethod))
-        : null;
-
+      const codeToSubmit = manualCode.trim().toUpperCase();
+      
       // Call the RPC to validate and confirm payment
       const { data, error } = await supabase.rpc('validate_and_confirm_payment', {
         p_appointment_id: appointmentId,
         p_barbershop_id: businessId,
-        p_payment_method: selectedMethod || 'mpesa',
-        p_phone_expected: phoneExpected,
+        p_payment_method: extractedData?.method || selectedMethod || 'unknown',
+        p_phone_expected: expectedRecipientPhone,
         p_amount_expected: servicePrice,
         p_confirmation_text: confirmationMessage,
-        p_transaction_code: manualCode.trim().toUpperCase(),
-        p_amount_detected: detectedAmount,
-        p_phone_detected: detectedPhone,
+        p_transaction_code: codeToSubmit,
+        p_amount_detected: extractedData?.amount,
+        p_phone_detected: extractedData?.phone,
         p_max_hours: 2
       });
 
@@ -211,7 +197,7 @@ export function PaymentStep({
       // Payment accepted!
       setIsPaymentConfirmed(true);
       toast({
-        title: 'Pagamento confirmado!',
+        title: 'Pagamento ACEITO ✅',
         description: 'Agora envie a confirmação no WhatsApp.',
       });
     } catch (err) {
@@ -222,13 +208,10 @@ export function PaymentStep({
     }
   };
 
-  // Check if we have a valid code
-  const hasValidCode = selectedCode !== null && validateManualCode(manualCode).isValid;
-
   const formattedDate = format(appointmentDate, "dd 'de' MMMM", { locale: pt });
 
   const handleSendWhatsApp = () => {
-    if (!hasValidCode) return;
+    if (!isPaymentConfirmed) return;
 
     if (!whatsappNumber?.trim()) {
       toast({
@@ -239,7 +222,9 @@ export function PaymentStep({
       return;
     }
 
-    const paymentMethodLabel = selectedMethod === 'mpesa' ? 'M-Pesa' : 'eMola';
+    const paymentMethodLabel = extractedData?.method === 'mpesa' ? 'M-Pesa' : 
+                               extractedData?.method === 'emola' ? 'eMola' : 
+                               selectedMethod === 'mpesa' ? 'M-Pesa' : 'eMola';
     const message = getClientToBusinessMessage({
       clientName,
       professionalName,
@@ -264,6 +249,9 @@ export function PaymentStep({
 
     onComplete();
   };
+
+  // Check if confirmation button should be enabled
+  const canConfirmPayment = validation?.isReady === true && appointmentId !== null;
 
   return (
     <Card className="border-border/50 bg-card/90 backdrop-blur-md shadow-xl animate-fade-in">
@@ -300,7 +288,7 @@ export function PaymentStep({
             <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
               <CheckCircle2 className="w-6 h-6 text-green-500 flex-shrink-0" />
               <div>
-                <p className="font-medium text-green-600">Pagamento confirmado!</p>
+                <p className="font-medium text-green-600">Pagamento ACEITO ✅</p>
                 <p className="text-sm text-muted-foreground">
                   Código: {manualCode}
                 </p>
@@ -397,7 +385,7 @@ export function PaymentStep({
                 {/* Campo para colar mensagem de confirmação */}
                 <div className="space-y-3">
                   <Label htmlFor="confirmation">
-                    Cole aqui a mensagem de confirmação (M-Pesa ou eMola)
+                    Cole aqui a mensagem de confirmação completa (M-Pesa ou eMola)
                   </Label>
                   <Textarea
                     id="confirmation"
@@ -406,37 +394,76 @@ export function PaymentStep({
                     onChange={(e) => {
                       setConfirmationMessage(e.target.value);
                       setValidationError(null);
+                      setIsManualEntry(false);
                     }}
                     className="min-h-[100px] bg-input border-border"
                   />
 
-                  {/* Códigos extraídos */}
-                  {extractedCodes.length > 0 && (
+                  {/* Dados detectados (INFO, não válido ainda) */}
+                  {extractedData && confirmationMessage.trim() && (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                        <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-green-600">Código detectado!</p>
-                          <p className="text-xs text-muted-foreground">
-                            {extractedCodes[0].method === 'emola' ? 'eMola' : 'M-Pesa'}: {extractedCodes[0].code}
-                          </p>
-                          {detectedAmount && (
+                      {/* Código detectado */}
+                      {extractedData.code ? (
+                        <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                          <Info className="w-5 h-5 text-blue-500 flex-shrink-0" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-blue-600">Código detectado (a validar)</p>
                             <p className="text-xs text-muted-foreground">
-                              Valor detectado: {detectedAmount.toFixed(2)} MZN
+                              {extractedData.method === 'emola' ? 'eMola' : 
+                               extractedData.method === 'mpesa' ? 'M-Pesa' : 'Método'}: {extractedData.code.code}
                             </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                          <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                          <p className="text-sm text-destructive">
+                            Código não detectado. Cole a mensagem completa.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Valor detectado */}
+                      {extractedData.amount !== null ? (
+                        <div className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
+                          validation?.amountMatches 
+                            ? 'bg-green-500/10 text-green-600' 
+                            : 'bg-yellow-500/10 text-yellow-600'
+                        }`}>
+                          <span>💰 Valor detectado: {extractedData.amount.toFixed(2)} MZN</span>
+                          {validation?.amountMatches ? (
+                            <CheckCircle2 className="w-4 h-4" />
+                          ) : (
+                            <span className="text-xs">(esperado: {servicePrice.toFixed(2)} MZN)</span>
                           )}
                         </div>
-                      </div>
-                    </div>
-                  )}
+                      ) : (
+                        <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-lg text-sm text-destructive">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>Valor não detectado na mensagem</span>
+                        </div>
+                      )}
 
-                  {/* Mensagem quando nenhum código encontrado */}
-                  {confirmationMessage.trim() && extractedCodes.length === 0 && (
-                    <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
-                      <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
-                      <p className="text-sm text-destructive">
-                        Não foi possível identificar o código de pagamento. Cole a mensagem completa.
-                      </p>
+                      {/* Destinatário detectado */}
+                      {extractedData.phone ? (
+                        <div className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
+                          validation?.recipientMatches 
+                            ? 'bg-green-500/10 text-green-600' 
+                            : 'bg-destructive/10 text-destructive'
+                        }`}>
+                          <span>📱 Destinatário: {extractedData.phone}</span>
+                          {validation?.recipientMatches ? (
+                            <CheckCircle2 className="w-4 h-4" />
+                          ) : (
+                            <span className="text-xs">(não corresponde)</span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-lg text-sm text-destructive">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>Número do destinatário não detectado</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -445,7 +472,7 @@ export function PaymentStep({
                 <div className="space-y-2">
                   <Label htmlFor="manualCode">
                     Código da transação
-                    {extractedCodes.length > 0 && (
+                    {extractedData?.code && (
                       <span className="text-xs text-muted-foreground ml-2">(edite se necessário)</span>
                     )}
                   </Label>
@@ -459,13 +486,21 @@ export function PaymentStep({
                   {manualCode && (
                     <p className="text-xs text-muted-foreground">
                       {validateManualCode(manualCode).isValid 
-                        ? `✓ Código ${validateManualCode(manualCode).method === 'mpesa' ? 'M-Pesa' : 'eMola'} válido` 
-                        : 'Código inválido. M-Pesa: 10–12 caracteres. eMola: PP ou CI + data/código.'}
+                        ? `Formato válido (${validateManualCode(manualCode).method === 'mpesa' ? 'M-Pesa' : 'eMola'})` 
+                        : 'Formato inválido. M-Pesa: 10–12 caracteres. eMola: PP ou CI + data/código.'}
                     </p>
                   )}
                 </div>
 
-                {/* Erro de validação anti-fraude */}
+                {/* Mensagem de erro de validação */}
+                {validation?.errorMessage && !validation.isReady && (
+                  <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                    <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                    <p className="text-sm text-destructive">{validation.errorMessage}</p>
+                  </div>
+                )}
+
+                {/* Erro de validação anti-fraude do servidor */}
                 {validationError && (
                   <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
                     <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
@@ -479,7 +514,7 @@ export function PaymentStep({
                     variant="gold"
                     size="lg"
                     className="w-full"
-                    disabled={!hasValidCode || isValidating || !appointmentId}
+                    disabled={!canConfirmPayment || isValidating}
                     onClick={handleConfirmPayment}
                   >
                     {isValidating ? (
@@ -494,11 +529,29 @@ export function PaymentStep({
                       </>
                     )}
                   </Button>
-                  {!hasValidCode && (
+                  
+                  {!canConfirmPayment && confirmationMessage.trim() && (
                     <p className="text-xs text-center text-muted-foreground">
-                      Cole a mensagem de confirmação para validar o código de pagamento.
+                      {!validation?.hasCode 
+                        ? 'Cole a mensagem de confirmação completa para detectar o código.' 
+                        : !validation?.hasAmount 
+                        ? 'Valor não detectado. Cole a mensagem completa.' 
+                        : !validation?.hasRecipient 
+                        ? 'Destinatário não detectado. Cole a mensagem completa.' 
+                        : !validation?.amountMatches 
+                        ? 'O valor detectado não corresponde ao valor do serviço.' 
+                        : !validation?.recipientMatches 
+                        ? 'O destinatário não corresponde ao número de pagamento.' 
+                        : 'Verifique os dados da confirmação.'}
                     </p>
                   )}
+                  
+                  {!confirmationMessage.trim() && (
+                    <p className="text-xs text-center text-muted-foreground">
+                      Cole a mensagem de confirmação para validar o pagamento.
+                    </p>
+                  )}
+                  
                   {!appointmentId && (
                     <p className="text-xs text-center text-destructive">
                       Erro: Agendamento não criado. Volte e tente novamente.
